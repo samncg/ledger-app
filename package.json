@@ -1,0 +1,23 @@
+{
+  "name": "ledger",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Ledger — Personal Budget (React + Vite)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "smoke": "vite build --ssr scripts/smoke-entry.jsx --outDir .smoke --emptyOutDir --logLevel warn && vite build --ssr scripts/smoke-entry2.jsx --outDir .smoke2 --emptyOutDir --logLevel warn && node scripts/smoke.mjs && node scripts/smoke2.mjs"
+  },
+  "dependencies": {
+    "firebase": "^10.12.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^30.0.1",
+    "vite": "^5.4.0"
+  }
+}
