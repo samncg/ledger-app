@@ -55,7 +55,7 @@ export default function LogCard({
       <div className="field-label">Date</div>
       <input className="input mono" type="date" value={entryDate} max={today} onChange={e=>setEntryDate(e.target.value)} style={{marginBottom:8}}/>
 
-      <div className="field-label">Categories <span style={{color:'var(--text-muted)',fontWeight:400}}>— pick one or more</span></div>
+      <div className="field-label">Categories <span style={{color:'var(--text-muted)',fontWeight:400}}>— pick one</span></div>
       <div className="cat-pills">
         {cats.map(c=>(
           <button key={c.id} className={`cat-pill ${selCats.includes(c.id)?"active":""}`}

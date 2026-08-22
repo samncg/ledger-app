@@ -94,7 +94,7 @@ fun LogCard(vm: LedgerViewModel, s: LedgerState) {
         DateField(value = vm.entryDate, onChange = { vm.entryDate = it }, maxDate = s.today)
 
         Spacer(Modifier.height(12.dp))
-        FieldLabel("Categories — pick one or more")
+        FieldLabel("Categories — pick one")
         Spacer(Modifier.height(6.dp))
         ChipFlow {
             s.cats.forEach { c ->

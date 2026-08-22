@@ -88,7 +88,7 @@ export default function App(){
   const[amount,setAmount]=useState("");
   const[selCats,setSelCats]=useState(["food"]);
   const category=selCats[0]||"food";
-  const toggleSelCat=id=>setSelCats(prev=>prev.includes(id)?(prev.length>1?prev.filter(x=>x!==id):prev):[...prev,id]);
+  const toggleSelCat=id=>setSelCats([id]); // single-select — new choice replaces the previous one
   const[note,setNote]=useState("");
   const[entryDate,setEntryDate]=useState(()=>todayKey());
   const[editingId,setEditingId]=useState(null);
@@ -827,7 +827,7 @@ export default function App(){
     showToast(`Logged ${MYR(val)} in ${selCats.map(id=>cats.find(c=>c.id===id)?.label||id).join(" + ")}.`,"success");
   };
   const startEdit=e=>{
-    setEditingId(e.id);setAmount(String(e.amount));setNote(e.note);setSelCats(expCats(e));setEntryDate(e.date);
+    const ec=expCats(e);setEditingId(e.id);setAmount(String(e.amount));setNote(e.note);setSelCats(ec.length?[ec[0]]:["food"]);setEntryDate(e.date);
     if(addFormRef.current)addFormRef.current.scrollIntoView({behavior:'smooth',block:'center'});
   };
   const updateExpense=()=>{

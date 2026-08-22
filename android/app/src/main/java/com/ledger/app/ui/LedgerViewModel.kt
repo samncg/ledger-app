@@ -196,9 +196,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     var confirm by mutableStateOf<ConfirmReq?>(null)
 
     fun toggleSelCat(id: String) {
-        selCats = if (selCats.contains(id)) {
-            if (selCats.size > 1) selCats.filter { it != id } else selCats
-        } else selCats + id
+        // Single-select — a new choice replaces the previous one.
+        selCats = listOf(id)
     }
 
     init {
@@ -903,7 +902,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         editingId = e.id
         amount = if (e.amount % 1.0 == 0.0) e.amount.toLong().toString() else e.amount.toString()
         note = e.note
-        selCats = entryCats(e)
+        selCats = entryCats(e).take(1).ifEmpty { listOf("food") } // single-select
         entryDate = e.date
     }
 
