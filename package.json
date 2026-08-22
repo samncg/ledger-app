@@ -6,6 +6,7 @@
   "description": "Ledger — Personal Budget (React + Vite)",
   "scripts": {
     "dev": "vite",
+    "deploy": "vite build && gh-pages -d dist"
     "build": "vite build",
     "preview": "vite preview",
     "smoke": "vite build --ssr scripts/smoke-entry.jsx --outDir .smoke --emptyOutDir --logLevel warn && vite build --ssr scripts/smoke-entry2.jsx --outDir .smoke2 --emptyOutDir --logLevel warn && node scripts/smoke.mjs && node scripts/smoke2.mjs"

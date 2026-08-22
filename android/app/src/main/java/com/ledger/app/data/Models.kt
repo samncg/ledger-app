@@ -63,7 +63,16 @@ data class TopUp(
 data class Balance(val start: Double = 0.0)
 
 @Serializable
-data class Piggy(val target: Double = 0.0, val saved: Double = 0.0)
+data class Piggy(
+    @Serializable(with = StringOrNumberSerializer::class)
+    val id: String = "default",
+    val name: String = "Piggy bank",
+    val target: Double = 0.0,
+    val saved: Double = 0.0,
+    val texture: String? = null,
+    val soundId: String? = "coin",
+    val soundCustom: String? = null,
+)
 
 @Serializable
 data class Rule(

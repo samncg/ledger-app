@@ -68,6 +68,8 @@ data class LedgerState(
     val topUps: List<TopUp> = emptyList(),
     val balance: Balance = Balance(),
     val piggy: Piggy = Piggy(),
+    val piggies: List<Piggy> = listOf(Piggy()),
+    val activePiggyId: String = "default",
     val recurring: List<Rule> = emptyList(),
     /* derived */
     val cats: List<Cat> = emptyList(),
@@ -97,7 +99,9 @@ data class LedgerState(
     val projectedDelta: Double = 0.0,
     val streak: Int = 0,
     val frequentEntries: List<FrequentEntry> = emptyList(),
-)
+) {
+    val activePiggy: Piggy get() = piggies.find { it.id == activePiggyId } ?: piggies.firstOrNull() ?: Piggy()
+}
 
 data class ToastMsg(val id: Long, val msg: String, val type: String, val action: ToastAction? = null)
 data class ToastAction(val label: String, val run: () -> Unit)
@@ -216,7 +220,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             catBudgets = d.catBudgets ?: emptyMap(),
             topUps = d.topUps ?: emptyList(),
             balance = d.balance ?: Balance(),
-            piggy = d.piggy ?: Piggy(),
+            piggy = (d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy())).first(),
+            piggies = d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy()),
+            activePiggyId = (d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy())).first().id,
             recurring = d.recurring ?: emptyList(),
         )
         val materialized = runRecurring(s)
@@ -284,13 +290,14 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 if (c.isFuture) break
                 cum += byDate[c.date] ?: 0.0
                 val left = (s.settings.monthlyBudget + cum) / s.settings.periodDays - c.spent
-                if (left > 0) banked += left
+                banked += left
             }
             banked
         }
         val bankBalance = s.balance.start - topUpTotal + bankedSoFar
         val todaySaved = max(0.0, todayRemaining)
-        val piggyPct = if (s.piggy.target > 0) min(100.0, s.piggy.saved / s.piggy.target * 100) else 0.0
+        val activePiggy = s.piggies.find { it.id == s.activePiggyId } ?: s.piggies.firstOrNull() ?: Piggy()
+        val piggyPct = if (activePiggy.target > 0) min(100.0, activePiggy.saved / activePiggy.target * 100) else 0.0
         val heroLabel = if (heroMode == "balance") "Balance" else "Available today"
         val heroValue = if (heroMode == "balance") bankBalance else todayRemaining
         val periodSpent = dayCells.filter { !it.isFuture }.sumOf { it.spent }
@@ -754,9 +761,51 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         })
     }
 
-    /* ─── Piggy bank ─── */
+    /* ─── Piggy bank operations ─── */
 
-    fun depositPiggy(amountStr: String) {
+    fun selectPiggy(id: String) {
+        update { it.copy(activePiggyId = id) }
+    }
+
+    fun addPiggy(name: String, target: Double = 0.0, texture: String? = null, soundId: String = "coin") {
+        val s = _state.value
+        val newId = uid()
+        val newPiggy = Piggy(
+            id = newId,
+            name = name.ifBlank { "Piggy #${s.piggies.size + 1}" },
+            target = target,
+            saved = 0.0,
+            texture = texture,
+            soundId = soundId,
+            soundCustom = null
+        )
+        val next = s.piggies + newPiggy
+        update { it.copy(piggies = next, activePiggyId = newId) }
+        viewModelScope.launch { repo.savePiggies(next) }
+        showToast("Created ${newPiggy.name}.", "success")
+    }
+
+    fun renamePiggy(id: String, newName: String) {
+        val s = _state.value
+        val next = s.piggies.map { if (it.id == id) it.copy(name = newName.ifBlank { it.name }) else it }
+        update { it.copy(piggies = next) }
+        viewModelScope.launch { repo.savePiggies(next) }
+        showToast("Piggy bank renamed.", "success")
+    }
+
+    fun savePiggyTarget(id: String, amountStr: String) {
+        val s = _state.value
+        val v = amountStr.toDoubleOrNull()
+        if (v == null || v.isNaN() || v < 0) {
+            showToast("Enter a valid goal amount.", "error"); return
+        }
+        val next = s.piggies.map { if (it.id == id) it.copy(target = v) else it }
+        update { it.copy(piggies = next) }
+        viewModelScope.launch { repo.savePiggies(next) }
+        showToast(if (v > 0) "Savings goal set to ${fmt(v, s.cur)}." else "Savings goal cleared.", "success")
+    }
+
+    fun depositPiggy(id: String, amountStr: String) {
         val s = _state.value
         val v = amountStr.toDoubleOrNull() ?: return
         if (v <= 0) {
@@ -765,48 +814,74 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         if (v > s.bankBalance) {
             showToast("Not enough balance — add at most ${fmt(s.bankBalance, s.cur)}.", "error"); return
         }
-        val prev = s.piggy.saved
+        val targetPiggy = s.piggies.find { it.id == id } ?: s.activePiggy
+        val prev = targetPiggy.saved
         val saved = prev + v
         val balance = s.balance.copy(start = s.balance.start - v)
-        val piggy = s.piggy.copy(saved = saved)
-        update { it.copy(balance = balance, piggy = piggy) }
-        viewModelScope.launch { repo.saveBalance(balance); repo.savePiggy(piggy) }
-        showToast("Added ${fmt(v, s.cur)} to your piggy bank.", "success")
-        if (s.piggy.target > 0 && prev < s.piggy.target && saved >= s.piggy.target) {
-            showToast("Goal complete — confetti! 🎉", "success")
+        val next = s.piggies.map { if (it.id == targetPiggy.id) it.copy(saved = saved) else it }
+        update { it.copy(balance = balance, piggies = next) }
+        viewModelScope.launch { repo.saveBalance(balance); repo.savePiggies(next) }
+        showToast("Added ${fmt(v, s.cur)} to ${targetPiggy.name}.", "success")
+        if (targetPiggy.target > 0 && prev < targetPiggy.target && saved >= targetPiggy.target) {
+            showToast("Goal complete for ${targetPiggy.name}! 🎉", "success")
         }
     }
 
-    fun breakPiggy() {
+    fun breakPiggy(id: String) {
         val s = _state.value
-        if (s.piggy.saved <= 0) {
-            showToast("Your piggy bank is empty.", "error"); return
+        val targetPiggy = s.piggies.find { it.id == id } ?: s.activePiggy
+        if (targetPiggy.saved <= 0) {
+            showToast("${targetPiggy.name} is empty.", "error"); return
         }
         confirm = ConfirmReq(
-            title = "Break the piggy bank?",
-            msg = "All ${fmt(s.piggy.saved, s.cur)} moves back to your balance.",
+            title = "Break ${targetPiggy.name}?",
+            msg = "All ${fmt(targetPiggy.saved, s.cur)} moves back to your balance.",
             onConfirm = {
-                val balance = s.balance.copy(start = s.balance.start + s.piggy.saved)
-                val piggy = s.piggy.copy(saved = 0.0)
-                update { it.copy(balance = balance, piggy = piggy) }
-                viewModelScope.launch { repo.saveBalance(balance); repo.savePiggy(piggy) }
+                val balance = s.balance.copy(start = s.balance.start + targetPiggy.saved)
+                val next = s.piggies.map { if (it.id == targetPiggy.id) it.copy(saved = 0.0) else it }
+                update { it.copy(balance = balance, piggies = next) }
+                viewModelScope.launch { repo.saveBalance(balance); repo.savePiggies(next) }
                 dismissConfirm()
-                showToast("Broke the piggy bank — ${fmt(s.piggy.saved, s.cur)} back to your balance.", "success")
+                showToast("Broke ${targetPiggy.name} — ${fmt(targetPiggy.saved, s.cur)} back to your balance.", "success")
             },
             onCancel = { dismissConfirm() },
         )
     }
 
-    fun savePiggyTarget(amountStr: String) {
+    fun deletePiggy(id: String) {
         val s = _state.value
-        val v = amountStr.toDoubleOrNull()
-        if (v == null || v.isNaN() || v < 0) {
-            showToast("Enter a valid goal amount.", "error"); return
+        if (s.piggies.size <= 1) {
+            showToast("Cannot delete the only piggy bank.", "error"); return
         }
-        val piggy = s.piggy.copy(target = v)
-        update { it.copy(piggy = piggy) }
-        viewModelScope.launch { repo.savePiggy(piggy) }
-        showToast(if (v > 0) "Savings goal set to ${fmt(v, s.cur)}." else "Savings goal cleared.", "success")
+        val targetPiggy = s.piggies.find { it.id == id } ?: return
+        confirm = ConfirmReq(
+            title = "Delete ${targetPiggy.name}?",
+            msg = if (targetPiggy.saved > 0) "All ${fmt(targetPiggy.saved, s.cur)} saved in this piggy bank will move back to your balance." else "Are you sure you want to delete ${targetPiggy.name}?",
+            onConfirm = {
+                val balance = if (targetPiggy.saved > 0) s.balance.copy(start = s.balance.start + targetPiggy.saved) else s.balance
+                val next = s.piggies.filter { it.id != id }
+                val newActiveId = if (s.activePiggyId == id) next.first().id else s.activePiggyId
+                update { it.copy(balance = balance, piggies = next, activePiggyId = newActiveId) }
+                viewModelScope.launch { repo.saveBalance(balance); repo.savePiggies(next) }
+                dismissConfirm()
+                showToast("Deleted ${targetPiggy.name}.", "success")
+            },
+            onCancel = { dismissConfirm() },
+        )
+    }
+
+    fun updatePiggyTexture(id: String, texture: String?) {
+        val s = _state.value
+        val next = s.piggies.map { if (it.id == id) it.copy(texture = texture) else it }
+        update { it.copy(piggies = next) }
+        viewModelScope.launch { repo.savePiggies(next) }
+    }
+
+    fun updatePiggySound(id: String, soundId: String) {
+        val s = _state.value
+        val next = s.piggies.map { if (it.id == id) it.copy(soundId = soundId) else it }
+        update { it.copy(piggies = next) }
+        viewModelScope.launch { repo.savePiggies(next) }
     }
 
     /* ─── CRUD ─── */
@@ -1019,6 +1094,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             title = "Delete everything?",
             msg = "This removes all logged expenses, budget settings, and preferences. Download a backup first if you want to keep your data.",
             onConfirm = {
+                val freshPiggy = Piggy()
                 update {
                     it.copy(
                         expenses = emptyList(),
@@ -1027,14 +1103,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                         catBudgets = emptyMap(),
                         topUps = emptyList(),
                         balance = Balance(0.0),
-                        piggy = Piggy(0.0, 0.0),
+                        piggy = freshPiggy,
+                        piggies = listOf(freshPiggy),
+                        activePiggyId = freshPiggy.id,
                         recurring = emptyList()
                     )
                 }
                 viewModelScope.launch {
                     repo.saveExpenses(emptyList()); repo.saveSettings(null); repo.saveCategories(defaultCategories())
                     repo.saveCatBudgets(emptyMap()); repo.saveTopUps(emptyList()); repo.saveBalance(Balance(0.0))
-                    repo.savePiggy(Piggy(0.0, 0.0)); repo.saveRecurring(emptyList())
+                    repo.savePiggies(listOf(freshPiggy)); repo.saveRecurring(emptyList())
                 }
                 dismissConfirm()
                 showToast("All data cleared.", "success")
@@ -1047,7 +1125,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
     fun exportJson(): String = buildJsonObject {
         put("type", "ledger-backup")
-        put("version", 5)
+        put("version", 6)
         put("exportedAt", java.time.OffsetDateTime.now().toString())
         val s = _state.value
         put("settings", s.settings?.let { json.encodeToJsonElement(it) } ?: JsonNull)
@@ -1056,7 +1134,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         put("catBudgets", json.encodeToJsonElement(s.catBudgets))
         put("topUps", json.encodeToJsonElement(s.topUps))
         put("balance", json.encodeToJsonElement(s.balance))
-        put("piggy", json.encodeToJsonElement(s.piggy))
+        put("piggy", json.encodeToJsonElement(s.piggies.firstOrNull() ?: Piggy()))
+        put("piggies", json.encodeToJsonElement(s.piggies))
         put("recurring", json.encodeToJsonElement(s.recurring))
         put("prefs", json.encodeToJsonElement(s.prefs))
     }.toString()
@@ -1119,12 +1198,17 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 runCatching { json.decodeFromJsonElement<Balance>(el) }.getOrNull() ?: s.balance
         }
 
-        var piggy = s.piggy
-        obj["piggy"]?.let { el ->
+        var piggies = s.piggies
+        obj["piggies"]?.let { el ->
+            if (el is JsonArray) piggies =
+                runCatching { json.decodeFromJsonElement<List<Piggy>>(el) }.getOrNull() ?: s.piggies
+        } ?: obj["piggy"]?.let { el ->
             if (el is JsonObject && el["target"] is JsonPrimitive && el["saved"] is JsonPrimitive) {
-                piggy = runCatching { json.decodeFromJsonElement<Piggy>(el) }.getOrNull() ?: s.piggy
+                val single = runCatching { json.decodeFromJsonElement<Piggy>(el) }.getOrNull()
+                if (single != null) piggies = listOf(single)
             }
         }
+        val piggy = piggies.firstOrNull() ?: Piggy()
 
         var recurring = s.recurring
         obj["recurring"]?.let { el ->
@@ -1163,13 +1247,14 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             it.copy(
                 settings = settings, expenses = newExpenses, categories = categories,
                 catBudgets = catBudgets, topUps = topUps, balance = balance,
-                piggy = piggy, recurring = recurring, prefs = prefs,
+                piggy = piggy, piggies = piggies, activePiggyId = piggy.id,
+                recurring = recurring, prefs = prefs,
             )
         }
         viewModelScope.launch {
             repo.saveSettings(settings); repo.saveExpenses(newExpenses); repo.saveCategories(categories)
             repo.saveCatBudgets(catBudgets); repo.saveTopUps(topUps); repo.saveBalance(balance)
-            repo.savePiggy(piggy); repo.saveRecurring(recurring); repo.savePrefs(prefs)
+            repo.savePiggies(piggies); repo.saveRecurring(recurring); repo.savePrefs(prefs)
         }
         showToast("Restored ${newExpenses.size} entries.", "success")
         return null

@@ -53,7 +53,7 @@ export default function BreakdownCard({
       </div>
 
       <div className="insights-row">
-        <span className="insight-item">Avg/day <strong>{MYR(avgPerDayInRange)}</strong></span>
+        <span className="insight-item">Avg spending/day <strong>{MYR(avgPerDayInRange)}</strong></span>
         <span className="insight-sep">·</span>
         <span className="insight-item">Top {topCategory?<strong>{topCategory.label}</strong>:<strong>—</strong>}{topCategory&&` (${MYR(categoryTotals[topCategory.id])})`}</span>
         <span className="insight-sep">·</span>

@@ -148,10 +148,10 @@ export default () => {
       activeFilterCount={0} resetFilters={noop} historyList={[]} historySpentTotal={0}
       historyToppedTotal={0} groupedHistory={[{ label: null, items: [] }]} MYR={MYR} today="2026-08-17"
       balancesOn startEdit={noop} duplicateExpense={noop} removeExpense={noop} removeTopUp={noop}/>,
-    <PiggyCard key="piggy" prefs={prefs} piggySaved={50} piggyTarget={200} piggyPct={25}
-      piggyTargetEdit={false} piggyTargetDraft="" setPiggyTargetDraft={set} setPiggyTargetEdit={set}
-      savePiggyTarget={noop} piggyAmount="" setPiggyAmount={set} depositPiggy={noop}
-      piggyOpen setPiggyOpen={set} breakPiggy={noop} MYR={MYR}/>,
+    <PiggyCard key="piggy" piggies={[{ id: 'p1', name: 'Piggy bank', target: 200, saved: 50, texture: null, soundId: 'coin', soundCustom: null }]}
+      activePiggyId="p1" setActivePiggyId={set} addPiggy={noop} renamePiggy={noop}
+      savePiggyTarget={noop} depositPiggy={noop} breakPiggy={noop} deletePiggy={noop}
+      updatePiggyTexture={noop} updatePiggySound={noop} MYR={MYR} showToast={noop}/>,
     <AutoCard key="auto" autoType="expense" setAutoType={set} autoAmount="" setAutoAmount={set}
       autoCat="food" setAutoCat={set} autoFreq="monthly" setAutoFreq={set} autoStart="2026-08-01"
       setAutoStart={set} autoNote="" setAutoNote={set} addAutomation={noop} cats={cats} balancesOn

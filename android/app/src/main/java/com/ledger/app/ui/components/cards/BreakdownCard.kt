@@ -113,7 +113,7 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
 
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Insight("Avg/day", fmtD(s, data.avgPerDay))
+            Insight("Avg spending/day", fmtD(s, data.avgPerDay))
             Insight("Top", data.topCategory?.label ?: "—")
             Insight("Txns", data.txnCount.toString())
             Insight("Biggest", data.biggestInRange?.let { fmtD(s, it.amount) } ?: "—")

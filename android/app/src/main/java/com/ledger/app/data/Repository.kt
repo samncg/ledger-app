@@ -37,6 +37,7 @@ class Repository(private val context: Context) {
         val topUps: List<TopUp>? = null,
         val balance: Balance? = null,
         val piggy: Piggy? = null,
+        val piggies: List<Piggy>? = null,
         val recurring: List<Rule>? = null,
     )
 
@@ -56,19 +57,25 @@ class Repository(private val context: Context) {
         context.ledgerDataStore.edit { it.remove(k) }
     }
 
-    suspend fun load(): StoredData = StoredData(
-        theme = read("ledger-theme"),
-        savedTheme = read("ledger-theme-saved"),
-        prefs = read("ledger-prefs"),
-        settings = read("ledger-settings"),
-        expenses = read("ledger-expenses"),
-        categories = read("ledger-cats"),
-        catBudgets = read("ledger-catbudgets"),
-        topUps = read("ledger-topups"),
-        balance = read("ledger-balance"),
-        piggy = read("ledger-piggy"),
-        recurring = read("ledger-recurring"),
-    )
+    suspend fun load(): StoredData {
+        val piggiesList: List<Piggy>? = read("ledger-piggies")
+        val oldPiggy: Piggy? = read("ledger-piggy")
+        val resolvedPiggies = piggiesList ?: oldPiggy?.let { listOf(it) } ?: listOf(Piggy())
+        return StoredData(
+            theme = read("ledger-theme"),
+            savedTheme = read("ledger-theme-saved"),
+            prefs = read("ledger-prefs"),
+            settings = read("ledger-settings"),
+            expenses = read("ledger-expenses"),
+            categories = read("ledger-cats"),
+            catBudgets = read("ledger-catbudgets"),
+            topUps = read("ledger-topups"),
+            balance = read("ledger-balance"),
+            piggy = resolvedPiggies.firstOrNull(),
+            piggies = resolvedPiggies,
+            recurring = read("ledger-recurring"),
+        )
+    }
 
     suspend fun saveTheme(v: AppTheme) = write("ledger-theme", v)
     suspend fun saveSavedTheme(v: AppTheme?) = write("ledger-theme-saved", v)
@@ -79,14 +86,18 @@ class Repository(private val context: Context) {
     suspend fun saveCatBudgets(v: Map<String, Double>) = write("ledger-catbudgets", v)
     suspend fun saveTopUps(v: List<TopUp>) = write("ledger-topups", v)
     suspend fun saveBalance(v: Balance) = write("ledger-balance", v)
-    suspend fun savePiggy(v: Piggy) = write("ledger-piggy", v)
+    suspend fun savePiggies(v: List<Piggy>) {
+        write("ledger-piggies", v)
+        v.firstOrNull()?.let { write("ledger-piggy", it) }
+    }
+    suspend fun savePiggy(v: Piggy) = savePiggies(listOf(v))
     suspend fun saveRecurring(v: List<Rule>) = write("ledger-recurring", v)
 
     suspend fun clearAll() {
         listOf(
             "ledger-theme", "ledger-theme-saved", "ledger-prefs", "ledger-settings",
             "ledger-expenses", "ledger-cats", "ledger-catbudgets", "ledger-topups",
-            "ledger-balance", "ledger-piggy", "ledger-recurring",
+            "ledger-balance", "ledger-piggy", "ledger-piggies", "ledger-recurring",
         ).forEach { remove(it) }
     }
 }

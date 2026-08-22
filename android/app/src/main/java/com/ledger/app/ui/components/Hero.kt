@@ -136,7 +136,7 @@ fun Hero(
                     myr(s.bankedSoFar),
                     "Leftover allowance banked so far",
                     Modifier.weight(1f),
-                    valueColor = positive
+                    valueColor = if (s.bankedSoFar < 0) negative else positive
                 )
             } else {
                 StatBox(
@@ -151,7 +151,7 @@ fun Hero(
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatBox(
-                "Avg / day", myr(s.avgDailySpend),
+                "Avg spending / day", myr(s.avgDailySpend),
                 (if (s.avgDailySpend <= s.dailyBudget) "Under allowance" else "Over allowance") + if (s.daysOver > 0) " · ${s.daysOver}d over" else "",
                 Modifier.weight(1f),
             )
@@ -165,6 +165,8 @@ fun Hero(
 
         /* ── Budget progress ── */
         Spacer(Modifier.height(14.dp))
+        val budgetLeft = s.effectiveMonthlyBudget - s.periodSpent
+        val budgetLeftText = if (budgetLeft >= 0) "${myr(budgetLeft)} left" else "${myr(Math.abs(budgetLeft))} over"
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -178,7 +180,7 @@ fun Hero(
                 color = cs.onSurfaceVariant
             )
             Text(
-                "${myr(s.periodSpent)} / ${myr(s.effectiveMonthlyBudget)}",
+                "${myr(s.periodSpent)} / ${myr(s.effectiveMonthlyBudget)} · $budgetLeftText",
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 color = cs.onSurfaceVariant

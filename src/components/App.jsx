@@ -48,17 +48,22 @@ export default function App(){
   const[catBudgets,setCatBudgets]=useState(()=>store.get("ledger-catbudgets")||{});
   const[topUps,setTopUps]=useState(()=>store.get("ledger-topups")||[]);
   const[balance,setBalance]=useState(()=>store.get("ledger-balance")||{start:0});
-  const[piggy,setPiggy]=useState(()=>store.get("ledger-piggy")||{target:0,saved:0});
+  const[piggies,setPiggies]=useState(()=>{
+    const list=store.get("ledger-piggies");
+    if(Array.isArray(list)&&list.length)return list;
+    const old=store.get("ledger-piggy");
+    if(old&&typeof old==='object'&&typeof old.saved==='number'){
+      return[{id:uid(),name:'Piggy bank',target:old.target||0,saved:old.saved||0,texture:null,soundId:'coin',soundCustom:null}];
+    }
+    return[{id:uid(),name:'Piggy bank',target:0,saved:0,texture:null,soundId:'coin',soundCustom:null}];
+  });
+  const[activePiggyId,setActivePiggyId]=useState(()=>piggies[0]?.id||'default');
   const[recurring,setRecurring]=useState(()=>store.get("ledger-recurring")||[]);
   const[showSetup,setShowSetup]=useState(false);
   const[showTopUp,setShowTopUp]=useState(false);
   const[moveMode,setMoveMode]=useState("budget");
   const[topUpAmount,setTopUpAmount]=useState("");
   const[topUpNote,setTopUpNote]=useState("");
-  const[piggyAmount,setPiggyAmount]=useState("");
-  const[piggyOpen,setPiggyOpen]=useState(false);
-  const[piggyTargetDraft,setPiggyTargetDraft]=useState("");
-  const[piggyTargetEdit,setPiggyTargetEdit]=useState(false);
   const[autoType,setAutoType]=useState("expense");
   const[autoAmount,setAutoAmount]=useState("");
   const[autoCat,setAutoCat]=useState("food");
@@ -138,12 +143,16 @@ export default function App(){
   const persistCatBudgets=useCallback(n=>{setCatBudgets(n);store.set("ledger-catbudgets",n)},[]);
   const persistTopUps=useCallback(n=>{setTopUps(n);store.set("ledger-topups",n)},[]);
   const persistBalance=useCallback(n=>{setBalance(n);store.set("ledger-balance",n)},[]);
-  const persistPiggy=useCallback(n=>{setPiggy(n);store.set("ledger-piggy",n)},[]);
+  const persistPiggies=useCallback(n=>{
+    setPiggies(n);
+    store.set("ledger-piggies",n);
+    if(n&&n.length)store.set("ledger-piggy",{target:n[0].target||0,saved:n[0].saved||0});
+  },[]);
   const persistRecurring=useCallback(n=>{setRecurring(n);store.set("ledger-recurring",n)},[]);
 
   /* ─── Cloud sync (Firebase + Google Auth) ─── */
   const stateRef=useRef(null);
-  useEffect(()=>{stateRef.current={expenses,topUps,balance,piggy,recurring,settings,categories,catBudgets,prefs,theme}},[expenses,topUps,balance,piggy,recurring,settings,categories,catBudgets,prefs,theme]);
+  useEffect(()=>{stateRef.current={expenses,topUps,balance,piggies,recurring,settings,categories,catBudgets,prefs,theme}},[expenses,topUps,balance,piggies,recurring,settings,categories,catBudgets,prefs,theme]);
   const savedThemeRef=useRef(savedTheme);useEffect(()=>{savedThemeRef.current=savedTheme},[savedTheme]);
   const skipNextPushRef=useRef(false);
 
@@ -155,7 +164,11 @@ export default function App(){
       if(Array.isArray(data.expenses)&&data.expenses.every(e=>e&&typeof e.amount==='number'&&typeof e.date==='string')){setExpenses(data.expenses);store.set("ledger-expenses",data.expenses)}
       if(Array.isArray(data.topUps)&&data.topUps.every(t=>t&&typeof t.amount==='number'&&typeof t.date==='string')){setTopUps(data.topUps);store.set("ledger-topups",data.topUps)}
       if(data.balance&&typeof data.balance==='object'&&!Array.isArray(data.balance)&&typeof data.balance.start==='number'){setBalance(data.balance);store.set("ledger-balance",data.balance)}
-      if(data.piggy&&typeof data.piggy==='object'&&!Array.isArray(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number'){setPiggy(data.piggy);store.set("ledger-piggy",data.piggy)}
+      if(Array.isArray(data.piggies)&&data.piggies.length){setPiggies(data.piggies);store.set("ledger-piggies",data.piggies)}
+      else if(data.piggy&&typeof data.piggy==='object'&&!Array.isArray(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number'){
+        const p=[{id:'p1',name:'Piggy bank',target:data.piggy.target||0,saved:data.piggy.saved||0,texture:null,soundId:'coin',soundCustom:null}];
+        setPiggies(p);store.set("ledger-piggies",p);
+      }
       if(Array.isArray(data.recurring)&&data.recurring.every(r=>r&&typeof r.amount==='number'&&typeof r.type==='string')){setRecurring(data.recurring);store.set("ledger-recurring",data.recurring)}
       if(data.settings&&typeof data.settings==='object'&&!Array.isArray(data.settings)&&typeof data.settings.monthlyBudget==='number'&&typeof data.settings.periodDays==='number'&&typeof data.settings.startDate==='string'){setSettings(data.settings);store.set("ledger-settings",data.settings)}
       if(Array.isArray(data.cats)&&data.cats.every(c=>c&&typeof c.id==='string'&&typeof c.label==='string')){setCategories(data.cats);store.set("ledger-cats",data.cats)}
@@ -197,7 +210,8 @@ export default function App(){
         expenses:firestoreSafe(s.expenses||[]),
         topUps:firestoreSafe(s.topUps||[]),
         balance:firestoreSafe(s.balance||{start:0}),
-        piggy:firestoreSafe(s.piggy||{target:0,saved:0}),
+        piggy:firestoreSafe(s.piggies?.[0]?{target:s.piggies[0].target||0,saved:s.piggies[0].saved||0}:{target:0,saved:0}),
+        piggies:firestoreSafe((s.piggies||[]).map(p=>({id:p.id,name:p.name,target:p.target||0,saved:p.saved||0}))),
         recurring:firestoreSafe(s.recurring||[]),
         settings:firestoreSafe(s.settings||null),
         cats:firestoreSafe(s.categories||DEFAULT_CATS),
@@ -292,7 +306,7 @@ export default function App(){
     if(pushTimerRef.current)clearTimeout(pushTimerRef.current);
     pushTimerRef.current=setTimeout(()=>pushSync(authUser.uid),1500);
     return ()=>clearTimeout(pushTimerRef.current);
-  },[expenses,topUps,balance,piggy,recurring,settings,categories,catBudgets,prefs,theme,authUser,pushSync]);
+  },[expenses,topUps,balance,piggies,recurring,settings,categories,catBudgets,prefs,theme,authUser,pushSync]);
 
   const signInGoogle=async()=>{
     if(!FIREBASE_CONFIGURED){showToast("Sync isn't configured yet — see the Sync section in settings.","error");return}
@@ -382,7 +396,7 @@ export default function App(){
       if(c.isFuture)break;
       cum+=(byDate[c.date]||0);
       const left=(settings.monthlyBudget+cum)/settings.periodDays-c.spent;
-      if(left>0)banked+=left;
+      banked+=left;
     }
     return banked;
   },[settings,topUps,dayCells]);
@@ -442,42 +456,104 @@ export default function App(){
     });
   };
 
-  /* ─── Piggy bank ─── */
-  const piggySaved=piggy?.saved||0;
-  const piggyTarget=piggy?.target||0;
-  const piggyPct=useMemo(()=>piggyTarget>0?Math.min(100,(piggySaved/piggyTarget)*100):0,[piggySaved,piggyTarget]);
-  const depositPiggy=()=>{
-    const val=parseFloat(piggyAmount);
-    if(!val||val<=0){showToast("Enter a valid amount.","error");return}
-    if(val>bankBalance){showToast(`Not enough balance — add at most ${MYR(bankBalance)}.`,"error");return}
-    const prev=piggySaved;
-    const saved=prev+val;
-    persistBalance({...balance,start:(balance?.start||0)-val});
-    persistPiggy({target:piggyTarget,saved});
-    setPiggyAmount("");setPiggyOpen(false);
-    if(prefs.piggySound!==false)playPiggySound(prefs.piggySoundId||'coin',prefs.piggySoundCustom);
-    showToast(`Added ${MYR(val)} to your piggy bank.`,"success");
-    if(piggyTarget>0&&prev<piggyTarget&&saved>=piggyTarget){
+  /* ─── Piggy bank operations ─── */
+  const addPiggy=(name,target)=>{
+    const newId=uid();
+    const newPiggy={
+      id:newId,
+      name:name.trim()||`Piggy #${piggies.length+1}`,
+      target:target||0,
+      saved:0,
+      texture:null,
+      soundId:'coin',
+      soundCustom:null,
+    };
+    const next=[...piggies,newPiggy];
+    persistPiggies(next);
+    setActivePiggyId(newId);
+    showToast(`Created "${newPiggy.name}".`,"success");
+  };
+
+  const renamePiggy=(id,newName)=>{
+    const next=piggies.map(p=>p.id===id?{...p,name:newName.trim()||p.name}:p);
+    persistPiggies(next);
+    showToast("Piggy bank renamed.","success");
+  };
+
+  const savePiggyTarget=(id,targetVal)=>{
+    const next=piggies.map(p=>p.id===id?{...p,target:targetVal}:p);
+    persistPiggies(next);
+    showToast(targetVal>0?`Savings goal set to ${MYR(targetVal)}.`:"Savings goal cleared.","success");
+  };
+
+  const depositPiggy=(id,amountVal)=>{
+    if(!amountVal||amountVal<=0){showToast("Enter a valid amount.","error");return}
+    if(amountVal>bankBalance){showToast(`Not enough balance — add at most ${MYR(bankBalance)}.`,"error");return}
+    const targetPiggy=piggies.find(p=>p.id===id)||piggies[0];
+    const prev=targetPiggy.saved||0;
+    const saved=prev+amountVal;
+    persistBalance({...balance,start:(balance?.start||0)-amountVal});
+    const next=piggies.map(p=>p.id===targetPiggy.id?{...p,saved}:p);
+    persistPiggies(next);
+    if(targetPiggy.soundId!=='none'){
+      playPiggySound(targetPiggy.soundId||'coin',targetPiggy.soundCustom);
+    }
+    showToast(`Added ${MYR(amountVal)} to ${targetPiggy.name}.`,"success");
+    if(targetPiggy.target>0&&prev<targetPiggy.target&&saved>=targetPiggy.target){
       confettiBurst();
-      if(prefs.piggySound!==false)playCelebrate();
-      showToast("Goal complete — confetti! 🎉","success");
+      playCelebrate();
+      showToast(`Goal complete for "${targetPiggy.name}" — confetti! 🎉`,"success");
     }
   };
-  const breakPiggy=()=>{
-    if(piggySaved<=0){showToast("Your piggy bank is empty.","error");return}
+
+  const breakPiggy=(id)=>{
+    const targetPiggy=piggies.find(p=>p.id===id)||piggies[0];
+    const savedAmt=targetPiggy.saved||0;
+    if(savedAmt<=0){showToast(`${targetPiggy.name} is empty.`,"error");return}
     setConfirm({
-      title:"Break the piggy bank?",
-      msg:`All ${MYR(piggySaved)} moves back to your balance.`,
-      onConfirm:()=>{persistBalance({...balance,start:(balance?.start||0)+piggySaved});persistPiggy({target:piggyTarget,saved:0});setConfirm(null);showToast(`Broke the piggy bank — ${MYR(piggySaved)} back to your balance.`,"success")},
+      title:`Break "${targetPiggy.name}"?`,
+      msg:`All ${MYR(savedAmt)} moves back to your balance.`,
+      onConfirm:()=>{
+        persistBalance({...balance,start:(balance?.start||0)+savedAmt});
+        const next=piggies.map(p=>p.id===targetPiggy.id?{...p,saved:0}:p);
+        persistPiggies(next);
+        setConfirm(null);
+        showToast(`Broke ${targetPiggy.name} — ${MYR(savedAmt)} back to your balance.`,"success");
+      },
       onCancel:()=>setConfirm(null)
     });
   };
-  const savePiggyTarget=()=>{
-    const val=parseFloat(piggyTargetDraft);
-    if(!isFinite(val)||val<0){showToast("Enter a valid goal amount.","error");return}
-    persistPiggy({target:val,saved:piggySaved});
-    setPiggyTargetDraft("");setPiggyTargetEdit(false);
-    showToast(val>0?`Savings goal set to ${MYR(val)}.`:"Savings goal cleared.","success");
+
+  const deletePiggy=(id)=>{
+    if(piggies.length<=1){showToast("Cannot delete the only piggy bank.","error");return}
+    const targetPiggy=piggies.find(p=>p.id===id);
+    if(!targetPiggy)return;
+    const savedAmt=targetPiggy.saved||0;
+    setConfirm({
+      title:`Delete "${targetPiggy.name}"?`,
+      msg:savedAmt>0?`All ${MYR(savedAmt)} saved in this piggy bank will move back to your balance.`:`Are you sure you want to delete "${targetPiggy.name}"?`,
+      onConfirm:()=>{
+        if(savedAmt>0){
+          persistBalance({...balance,start:(balance?.start||0)+savedAmt});
+        }
+        const next=piggies.filter(p=>p.id!==id);
+        if(activePiggyId===id)setActivePiggyId(next[0].id);
+        persistPiggies(next);
+        setConfirm(null);
+        showToast(`Deleted "${targetPiggy.name}".`,"success");
+      },
+      onCancel:()=>setConfirm(null)
+    });
+  };
+
+  const updatePiggyTexture=(id,textureData)=>{
+    const next=piggies.map(p=>p.id===id?{...p,texture:textureData}:p);
+    persistPiggies(next);
+  };
+
+  const updatePiggySound=(id,soundId,soundCustom)=>{
+    const next=piggies.map(p=>p.id===id?{...p,soundId,...(soundCustom!==undefined?{soundCustom}:{})}:p);
+    persistPiggies(next);
   };
 
   /* ─── Automations (recurring entries) ─── */
@@ -537,34 +613,6 @@ export default function App(){
     const diff=dayDiff(today,from);
     if(diff<=0)return"Due today";
     return diff===1?"Tomorrow":`in ${diff}d`;
-  };
-
-  /* ─── Piggy texture & sound upload (device-local, like wallpaper) ─── */
-  const piggyTextureInputRef=useRef(null);
-  const piggySoundInputRef=useRef(null);
-  const triggerPiggyTextureUpload=()=>piggyTextureInputRef.current?.click();
-  const triggerPiggySoundUpload=()=>piggySoundInputRef.current?.click();
-  const handlePiggyTextureFile=e=>{
-    const file=e.target.files?.[0];if(!file)return;
-    if(!file.type.startsWith("image/")){showToast("Please choose an image file.","error");e.target.value="";return}
-    if(file.size>3*1024*1024){showToast("Image is too large — keep it under 3 MB.","error");e.target.value="";return}
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      persistPrefs({...prefs,piggyTexture:ev.target.result});
-      showToast("Piggy texture updated.","success");
-    };
-    reader.readAsDataURL(file);e.target.value="";
-  };
-  const handlePiggySoundFile=e=>{
-    const file=e.target.files?.[0];if(!file)return;
-    if(!file.type.startsWith("audio/")){showToast("Please choose an audio file.","error");e.target.value="";return}
-    if(file.size>3*1024*1024){showToast("Audio is too large — keep it under 3 MB.","error");e.target.value="";return}
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      persistPrefs({...prefs,piggySoundCustom:ev.target.result,piggySoundId:'custom'});
-      showToast("Custom deposit sound saved.","success");
-    };
-    reader.readAsDataURL(file);e.target.value="";
   };
 
   const avgDailySpend=useMemo(()=>{
@@ -807,7 +855,7 @@ export default function App(){
 
   /* ─── Backup ─── */
   const exportData=()=>{
-    const payload={type:"ledger-backup",version:5,exportedAt:new Date().toISOString(),settings,expenses,categories,catBudgets,topUps,balance,piggy,recurring,prefs};
+    const payload={type:"ledger-backup",version:6,exportedAt:new Date().toISOString(),settings,expenses,categories,catBudgets,topUps,balance,piggy:piggies[0]||{target:0,saved:0},piggies,recurring,prefs};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`ledger-backup-${today}.json`;
@@ -842,7 +890,8 @@ export default function App(){
         if(data.catBudgets)persistCatBudgets(data.catBudgets);
         if(Array.isArray(data.topUps))persistTopUps(data.topUps);
         if(data.balance&&typeof data.balance==='object'&&!Array.isArray(data.balance)&&typeof data.balance.start==='number')persistBalance(data.balance);
-        if(data.piggy&&typeof data.piggy==='object'&&!Array.isArray(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number')persistPiggy(data.piggy);
+        if(Array.isArray(data.piggies)&&data.piggies.length){persistPiggies(data.piggies);if(data.piggies[0])setActivePiggyId(data.piggies[0].id)}
+        else if(data.piggy&&typeof data.piggy==='object'&&!Array.isArray(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number')persistPiggies([{id:uid(),name:'Piggy bank',target:data.piggy.target||0,saved:data.piggy.saved||0,texture:null,soundId:'coin',soundCustom:null}]);
         if(Array.isArray(data.recurring)&&data.recurring.every(r=>r&&typeof r.amount==='number'&&typeof r.type==='string'))persistRecurring(data.recurring);
         if(data.prefs)persistPrefs({...prefs,...data.prefs});
         persistExpenses(data.expenses);
@@ -945,7 +994,7 @@ export default function App(){
   const handleClearAll=()=>setConfirm({
     title:"Delete everything?",
     msg:"This removes all logged expenses, budget settings, and preferences. Download a backup first if you want to keep your data.",
-    onConfirm:()=>{persistExpenses([]);persistSettings(null);persistCats(DEFAULT_CATS);persistCatBudgets({});persistTopUps([]);persistBalance({start:0});persistPiggy({target:0,saved:0});persistRecurring([]);setConfirm(null);showToast("All data cleared.","success")},
+    onConfirm:()=>{persistExpenses([]);persistSettings(null);persistCats(DEFAULT_CATS);persistCatBudgets({});persistTopUps([]);persistBalance({start:0});persistPiggies([{id:uid(),name:'Piggy bank',target:0,saved:0,texture:null,soundId:'coin',soundCustom:null}]);persistRecurring([]);setConfirm(null);showToast("All data cleared.","success")},
     onCancel:()=>setConfirm(null)
   });
 
@@ -1159,11 +1208,19 @@ export default function App(){
       nextRun={nextRun} MYR={MYR} today={today}
     />,
     piggy:<PiggyCard
-      prefs={prefs} piggySaved={piggySaved} piggyTarget={piggyTarget} piggyPct={piggyPct}
-      piggyTargetEdit={piggyTargetEdit} piggyTargetDraft={piggyTargetDraft} setPiggyTargetDraft={setPiggyTargetDraft}
-      setPiggyTargetEdit={setPiggyTargetEdit} savePiggyTarget={savePiggyTarget} piggyAmount={piggyAmount}
-      setPiggyAmount={setPiggyAmount} depositPiggy={depositPiggy} piggyOpen={piggyOpen}
-      setPiggyOpen={setPiggyOpen} breakPiggy={breakPiggy} MYR={MYR}
+      piggies={piggies}
+      activePiggyId={activePiggyId}
+      setActivePiggyId={setActivePiggyId}
+      addPiggy={addPiggy}
+      renamePiggy={renamePiggy}
+      savePiggyTarget={savePiggyTarget}
+      depositPiggy={depositPiggy}
+      breakPiggy={breakPiggy}
+      deletePiggy={deletePiggy}
+      updatePiggyTexture={updatePiggyTexture}
+      updatePiggySound={updatePiggySound}
+      MYR={MYR}
+      showToast={showToast}
     />,
     backup:<BackupCard
       exportData={exportData} exportCSV={exportCSV} triggerImport={triggerImport} settings={settings}
@@ -1186,8 +1243,6 @@ export default function App(){
       <div className="shell">
         <input ref={fileInputRef} type="file" accept="application/json" style={{display:"none"}} onChange={handleImportFile}/>
         <input ref={wallpaperInputRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={handleWallpaperFile}/>
-        <input ref={piggyTextureInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePiggyTextureFile}/>
-        <input ref={piggySoundInputRef} type="file" accept="audio/*" style={{display:"none"}} onChange={handlePiggySoundFile}/>
         {!settings?(
           <SetupCard balancesOn={balancesOn} draftBudget={draftBudget} setDraftBudget={setDraftBudget} draftCurrency={draftCurrency} setDraftCurrency={setDraftCurrency} draftDays={draftDays} setDraftDays={setDraftDays} draftStartDate={draftStartDate} setDraftStartDate={setDraftStartDate} today={today} draftBalance={draftBalance} setDraftBalance={setDraftBalance} saveSetup={saveSetup} triggerImport={triggerImport}/>
         ):(
@@ -1257,7 +1312,7 @@ export default function App(){
             cats={cats} categories={categories} removeCategory={removeCategory} addCategory={addCategory}
             newCatName={newCatName} setNewCatName={setNewCatName} newCatGlyph={newCatGlyph} setNewCatGlyph={setNewCatGlyph}
             heatColors={heatColors} cur={cur} balancesOn={balancesOn} heroMode={heroMode}
-            triggerPiggyTextureUpload={triggerPiggyTextureUpload} triggerPiggySoundUpload={triggerPiggySoundUpload} showToast={showToast}
+            showToast={showToast}
             authUser={authUser} signInGoogle={signInGoogle} signOutGoogle={signOutGoogle}
             syncError={syncError} syncErrorMsg={syncErrorMsg} lastSyncedAt={lastSyncedAt} resetTheme={resetTheme}
           />

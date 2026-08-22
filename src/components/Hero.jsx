@@ -48,7 +48,7 @@ export default function Hero({
         {balancesOn?(
           <div>
             <div className="hero-stat-label">Saved to balance</div>
-            <div className="hero-stat-value" style={{color:'var(--positive)'}}>{MYR(bankedSoFar)}</div>
+            <div className="hero-stat-value" style={{color:bankedSoFar<0?'var(--negative)':'var(--positive)'}}>{MYR(bankedSoFar)}</div>
             <div className="hero-stat-note">Leftover allowance banked so far</div>
           </div>
         ):(
@@ -59,7 +59,7 @@ export default function Hero({
           </div>
         )}
         <div>
-          <div className="hero-stat-label">Avg / day</div>
+          <div className="hero-stat-label">Avg spending / day</div>
           <div className="hero-stat-value">{MYR(avgDailySpend)}</div>
           <div className="hero-stat-note">
             {avgDailySpend<=dailyBudget?"Under allowance":"Over allowance"}
@@ -78,7 +78,9 @@ export default function Hero({
       <div style={{marginBottom:22}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:6}}>
           <span className="strip-label">Budget progress</span>
-          <span className="mono" style={{fontSize:11,color:'var(--text-dim)'}}>{MYR(periodSpent)} / {MYR(effectiveMonthlyBudget)}</span>
+          <span className="mono" style={{fontSize:11,color:'var(--text-dim)'}}>
+            {MYR(periodSpent)} / {MYR(effectiveMonthlyBudget)} · {effectiveMonthlyBudget-periodSpent>=0?`${MYR(effectiveMonthlyBudget-periodSpent)} left`:`${MYR(periodSpent-effectiveMonthlyBudget)} over`}
+          </span>
         </div>
         <div className="piggy-progress">
           <div className="piggy-progress-fill" style={{width:`${budgetPctFull}%`,background:periodSpent>effectiveMonthlyBudget?'var(--negative)':'var(--accent)'}}/>

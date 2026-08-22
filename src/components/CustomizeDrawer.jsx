@@ -1,7 +1,6 @@
 import { I } from '../lib/icons';
 import { CURRENCIES, PRESETS, CAT_COLOR_PRESETS, HEAT_PRESETS, HEAT_DEFAULT_COLORS } from '../lib/constants';
 import { heatColorVal } from '../lib/helpers';
-import { playPiggySound } from '../lib/sound';
 import { FIREBASE_CONFIGURED } from '../lib/firebase';
 
 /* Theme / Chart / Categories / Prefs drawer */
@@ -14,7 +13,7 @@ export default function CustomizeDrawer({
   triggerCardPanelUpload,clearCardPanel,resetCardOrder,
   cats,categories,removeCategory,addCategory,newCatName,setNewCatName,newCatGlyph,setNewCatGlyph,
   heatColors,cur,balancesOn,heroMode,
-  triggerPiggyTextureUpload,triggerPiggySoundUpload,showToast,
+  showToast,
   authUser,signInGoogle,signOutGoogle,syncError,syncErrorMsg,lastSyncedAt,
   resetTheme,
 }){
@@ -368,42 +367,6 @@ export default function CustomizeDrawer({
                     <button className={`drawer-tab ${heroMode==='balance'?'active':''}`} onClick={()=>persistPrefs({...prefs,heroMode:'balance'})}>Balance</button>
                   </div>
                 </div>
-              )}
-
-              <div className="section-title">Piggy bank</div>
-              {balancesOn?(
-                <>
-                  <div className="section-desc" style={{marginTop:-4,marginBottom:8}}>Texture</div>
-                  <div className="backup-grid">
-                    <button className="btn btn-secondary" onClick={triggerPiggyTextureUpload}><I.Upload/> Custom texture</button>
-                    {prefs.piggyTexture&&<button className="btn btn-ghost" onClick={()=>persistPrefs({...prefs,piggyTexture:null})}><I.Trash/> Remove</button>}
-                  </div>
-                  <div className="section-desc" style={{marginTop:8}}>No custom texture? The flying piggy rides in by default.</div>
-                  <div className="toggle-row">
-                    <div>
-                      <div className="toggle-label">Deposit sounds</div>
-                      <div className="toggle-desc">Coin effects when you add money, plus a fanfare when the goal is complete.</div>
-                    </div>
-                    <button className={`toggle ${prefs.piggySound!==false?'on':''}`} onClick={()=>persistPrefs({...prefs,piggySound:prefs.piggySound===false})} title="Toggle piggy bank sounds"/>
-                  </div>
-                  {prefs.piggySound!==false&&(
-                    <div style={{marginTop:12}}>
-                      <div className="field-label" style={{marginBottom:8}}>Sound</div>
-                      <div className="drawer-tabs">
-                        <button className={`drawer-tab ${(prefs.piggySoundId||'coin')==='coin'?'active':''}`} onClick={()=>persistPrefs({...prefs,piggySoundId:'coin'})}>Coin</button>
-                        <button className={`drawer-tab ${(prefs.piggySoundId||'coin')==='chime'?'active':''}`} onClick={()=>persistPrefs({...prefs,piggySoundId:'chime'})}>Chime</button>
-                        <button className={`drawer-tab ${(prefs.piggySoundId||'coin')==='custom'?'active':''}`} onClick={()=>{if(prefs.piggySoundCustom){persistPrefs({...prefs,piggySoundId:'custom'})}else{showToast("Upload a custom sound first.","info");triggerPiggySoundUpload()}}}>Custom</button>
-                      </div>
-                      <div className="backup-grid" style={{marginTop:8}}>
-                        <button className="btn btn-secondary" onClick={triggerPiggySoundUpload}><I.Upload/> Upload sound</button>
-                        {prefs.piggySoundCustom&&<button className="btn btn-ghost" onClick={()=>persistPrefs({...prefs,piggySoundCustom:null,piggySoundId:prefs.piggySoundId==='custom'?'coin':prefs.piggySoundId})}><I.Trash/> Remove</button>}
-                      </div>
-                      <button className="link-btn" style={{marginTop:8}} onClick={()=>playPiggySound(prefs.piggySoundId||'coin',prefs.piggySoundCustom)}>Preview sound</button>
-                    </div>
-                  )}
-                </>
-              ):(
-                <div className="section-desc">Turn the bank balance system on to use the piggy bank.</div>
               )}
 
               <div className="section-title">Currency</div>
