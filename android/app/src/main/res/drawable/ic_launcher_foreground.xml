@@ -4,7 +4,24 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Top Bar -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M34,28 h10 v30 h26 v10 h-36 z" />
+        android:pathData="M22,24 h64 v7 h-64 z" />
+    <!-- Middle Bar -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,40 h48 v7 h-48 z" />
+    <!-- Lower Bar -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,56 h48 v7 h-48 z" />
+    <!-- L Outline Frame -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.4"
+        android:strokeLineJoin="miter"
+        android:strokeLineCap="square"
+        android:fillColor="#00000000"
+        android:pathData="M22,40 H33 V73 H86 V84 H22 Z" />
 </vector>

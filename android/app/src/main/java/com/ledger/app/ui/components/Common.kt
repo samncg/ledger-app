@@ -476,28 +476,34 @@ fun CardContainer(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(cs.surface)
-            .border(1.dp, cs.outline, RoundedCornerShape(18.dp))
-            .padding(18.dp),
+    val glass = LocalGlassStyle.current
+    val baseColor = if (glass.enabled) cs.surface else cs.surface
+    val accentColor = cs.primary
+    val shape = RoundedCornerShape(18.dp)
+
+    GlassSurface(
+        style = glass,
+        baseColor = baseColor,
+        accentColor = accentColor,
+        shape = shape,
+        modifier = modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (icon != null) Icon(icon, null, Modifier.size(17.dp), tint = cs.primary)
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                if (count != null) Text(count, fontSize = 11.5.sp, color = cs.onSurfaceVariant)
+        Column(Modifier.padding(18.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (icon != null) Icon(icon, null, Modifier.size(17.dp), tint = cs.primary)
+                    Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    if (count != null) Text(count, fontSize = 11.5.sp, color = cs.onSurfaceVariant)
+                }
+                trailing?.invoke()
             }
-            trailing?.invoke()
+            Spacer(Modifier.height(12.dp))
+            content()
         }
-        Spacer(Modifier.height(12.dp))
-        content()
     }
 }
 

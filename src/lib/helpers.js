@@ -33,9 +33,18 @@ export const groupLabel=(dateStr,today)=>{
   return d.toLocaleDateString(undefined,{month:'long',year:'numeric'});
 };
 export const uid=()=>Date.now()+Math.random().toString(36).slice(2,6);
-/* Effective category list for an expense — new entries carry a `categories`
-   array, old synced ones only have a single `category`. */
-export const expCats=e=>Array.isArray(e.categories)&&e.categories.length?e.categories:(e.category?[e.category]:[]);
+
+/* Enforce single-category selection across all expenses */
+export const normalizeExpense = e => {
+  if (!e) return e;
+  const cat = (Array.isArray(e.categories) && e.categories.length ? e.categories[0] : e.category) || 'food';
+  return { ...e, category: cat, categories: [cat] };
+};
+export const normalizeExpenses = list => Array.isArray(list) ? list.map(normalizeExpense) : [];
+export const expCats = e => {
+  const cat = (Array.isArray(e.categories) && e.categories.length ? e.categories[0] : e.category) || 'food';
+  return [cat];
+};
 export const store={
   get(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}},
   set(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}

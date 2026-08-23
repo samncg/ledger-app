@@ -1,16 +1,31 @@
 package com.ledger.app.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.util.Log
+import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.OAuthProvider
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.ListenerRegistration
 import com.ledger.app.data.AppTheme
+import com.ledger.app.data.AuthUser
 import com.ledger.app.data.Balance
 import com.ledger.app.data.Cat
 import com.ledger.app.data.Category
 import com.ledger.app.data.DayCell
 import com.ledger.app.data.Expense
+import com.ledger.app.data.FirebaseConfig
+import com.ledger.app.data.FirebaseManager
+import com.ledger.app.data.FirebaseSyncSerializer
 import com.ledger.app.data.FrequentEntry
 import com.ledger.app.data.Piggy
 import com.ledger.app.data.Prefs
@@ -20,6 +35,7 @@ import com.ledger.app.data.Settings
 import com.ledger.app.data.TopUp
 import com.ledger.app.data.defaultCategories
 import com.ledger.app.data.expCats
+import com.ledger.app.util.NotificationHelper
 import com.ledger.app.util.advanceDate
 import com.ledger.app.util.addDays
 import com.ledger.app.util.dayDiff
@@ -30,10 +46,12 @@ import com.ledger.app.util.parseDate
 import com.ledger.app.util.relativeDate
 import com.ledger.app.util.todayKey
 import com.ledger.app.util.uid
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -99,6 +117,11 @@ data class LedgerState(
     val projectedDelta: Double = 0.0,
     val streak: Int = 0,
     val frequentEntries: List<FrequentEntry> = emptyList(),
+    val authUser: AuthUser? = null,
+    val syncError: Boolean = false,
+    val syncErrorMsg: String = "",
+    val lastSyncedAt: Long = 0L,
+    val isFirebaseConfigured: Boolean = FirebaseConfig.isConfigured,
 ) {
     val activePiggy: Piggy get() = piggies.find { it.id == activePiggyId } ?: piggies.firstOrNull() ?: Piggy()
 }
@@ -200,21 +223,37 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         selCats = listOf(id)
     }
 
+    private var authListener: FirebaseAuth.AuthStateListener? = null
+    private var snapshotListener: ListenerRegistration? = null
+    private var pushJob: Job? = null
+    private var lastPushedJson: String? = null
+    private var lastSyncPushTime: Long = 0L
+    private var skipNextPush: Boolean = false
+    private var syncedUid: String? = null
+
     init {
-        viewModelScope.launch { load() }
+        viewModelScope.launch {
+            load()
+            initFirebaseSync()
+        }
     }
 
     /* ─── Loading & persistence plumbing ─── */
 
     private suspend fun load() {
         val d = repo.load()
+        val rawExpenses = d.expenses ?: emptyList()
+        val normalizedExpenses = com.ledger.app.data.normalizeExpenses(rawExpenses)
+        if (rawExpenses != normalizedExpenses) {
+            viewModelScope.launch { repo.saveExpenses(normalizedExpenses) }
+        }
         var s = LedgerState(
             ready = true,
             theme = d.theme ?: DEFAULT_THEME,
             savedTheme = d.savedTheme,
             prefs = d.prefs ?: Prefs(),
             settings = d.settings,
-            expenses = d.expenses ?: emptyList(),
+            expenses = normalizedExpenses,
             categories = d.categories ?: defaultCategories(),
             catBudgets = d.catBudgets ?: emptyMap(),
             topUps = d.topUps ?: emptyList(),
@@ -228,10 +267,15 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         if (materialized != null) s = materialized
         _state.value = computeDerived(s)
         if (materialized != null) persistSliceChanges(materialized)
+
+        if (s.prefs.notificationsEnabled) {
+            NotificationHelper.scheduleDailyReminder(repo.appContext, s.prefs.reminderHour, s.prefs.reminderMinute)
+        }
     }
 
     private fun update(f: (LedgerState) -> LedgerState) {
         _state.value = computeDerived(f(_state.value))
+        triggerDebouncedPush()
     }
 
     private suspend fun persistSliceChanges(s: LedgerState) {
@@ -841,7 +885,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 update { it.copy(balance = balance, piggies = next) }
                 viewModelScope.launch { repo.saveBalance(balance); repo.savePiggies(next) }
                 dismissConfirm()
-                showToast("Broke ${targetPiggy.name} — ${fmt(targetPiggy.saved, s.cur)} back to your balance.", "success")
+                showToast(
+                    "Broke ${targetPiggy.name} — ${fmt(targetPiggy.saved, s.cur)} back to your balance.",
+                    "success"
+                )
             },
             onCancel = { dismissConfirm() },
         )
@@ -855,9 +902,15 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val targetPiggy = s.piggies.find { it.id == id } ?: return
         confirm = ConfirmReq(
             title = "Delete ${targetPiggy.name}?",
-            msg = if (targetPiggy.saved > 0) "All ${fmt(targetPiggy.saved, s.cur)} saved in this piggy bank will move back to your balance." else "Are you sure you want to delete ${targetPiggy.name}?",
+            msg = if (targetPiggy.saved > 0) "All ${
+                fmt(
+                    targetPiggy.saved,
+                    s.cur
+                )
+            } saved in this piggy bank will move back to your balance." else "Are you sure you want to delete ${targetPiggy.name}?",
             onConfirm = {
-                val balance = if (targetPiggy.saved > 0) s.balance.copy(start = s.balance.start + targetPiggy.saved) else s.balance
+                val balance =
+                    if (targetPiggy.saved > 0) s.balance.copy(start = s.balance.start + targetPiggy.saved) else s.balance
                 val next = s.piggies.filter { it.id != id }
                 val newActiveId = if (s.activePiggyId == id) next.first().id else s.activePiggyId
                 update { it.copy(balance = balance, piggies = next, activePiggyId = newActiveId) }
@@ -889,12 +942,13 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val s = _state.value
         val v = amount.toDoubleOrNull() ?: return
         if (v <= 0) return
-        val entry = Expense(uid(), entryDate.ifEmpty { s.today }, v, selCats, selCats.firstOrNull(), note.trim())
+        val cat = selCats.firstOrNull() ?: "food"
+        val entry = Expense(uid(), entryDate.ifEmpty { s.today }, v, listOf(cat), cat, note.trim())
         val next = s.expenses + entry
         update { it.copy(expenses = next) }
         amount = ""; note = ""; entryDate = todayKey()
-        val catNames = selCats.map { id -> s.cats.find { it.id == id }?.label ?: id }.joinToString(" + ")
-        showToast("Logged ${fmt(v, s.cur)} in $catNames.", "success")
+        val catName = s.cats.find { it.id == cat }?.label ?: cat
+        showToast("Logged ${fmt(v, s.cur)} in $catName.", "success")
         viewModelScope.launch { repo.saveExpenses(next) }
     }
 
@@ -911,11 +965,12 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val id = editingId ?: return
         val v = amount.toDoubleOrNull() ?: return
         if (v <= 0) return
+        val cat = selCats.firstOrNull() ?: "food"
         val next = s.expenses.map {
             if (it.id == id) it.copy(
                 amount = v,
-                categories = selCats,
-                category = selCats.firstOrNull(),
+                categories = listOf(cat),
+                category = cat,
                 note = note.trim(),
                 date = entryDate.ifEmpty { s.today })
             else it
@@ -1085,6 +1140,101 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         showToast("Card order reset.", "success")
     }
 
+    /* ─── Wallpaper & Notifications ─── */
+
+    fun setWallpaperFromUri(context: android.content.Context, uri: android.net.Uri) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch
+                val file = java.io.File(context.filesDir, "wallpaper_${System.currentTimeMillis()}.jpg")
+                context.filesDir.listFiles { _, name -> name.startsWith("wallpaper_") }?.forEach { it.delete() }
+
+                file.outputStream().use { out ->
+                    inputStream.copyTo(out)
+                }
+                val path = file.absolutePath
+                updatePrefs { it.copy(wallpaper = path) }
+                showToast("Wallpaper set.", "success")
+            } catch (e: Exception) {
+                showToast("Couldn't set wallpaper.", "error")
+            }
+        }
+    }
+
+    fun clearWallpaper(context: android.content.Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            context.filesDir.listFiles { _, name -> name.startsWith("wallpaper_") }?.forEach { it.delete() }
+            updatePrefs { it.copy(wallpaper = null) }
+            showToast("Wallpaper removed.", "success")
+        }
+    }
+
+    fun updateWallpaperDim(dim: Int) {
+        updatePrefs { it.copy(wallpaperDim = dim.coerceIn(0, 90)) }
+    }
+
+    fun updateWallBlur(blur: Int) {
+        updatePrefs { it.copy(wallBlur = blur.coerceIn(0, 20)) }
+    }
+
+    fun toggleNotifications(enabled: Boolean, context: android.content.Context) {
+        updatePrefs { it.copy(notificationsEnabled = enabled) }
+        if (enabled) {
+            NotificationHelper.scheduleDailyReminder(
+                context,
+                _state.value.prefs.reminderHour,
+                _state.value.prefs.reminderMinute
+            )
+            showToast("Daily reminders turned on.", "success")
+        } else {
+            NotificationHelper.cancelDailyReminder(context)
+            showToast("Reminders turned off.", "info")
+        }
+    }
+
+    fun setReminderTime(hour: Int, minute: Int, context: android.content.Context) {
+        updatePrefs { it.copy(reminderHour = hour, reminderMinute = minute) }
+        if (_state.value.prefs.notificationsEnabled) {
+            NotificationHelper.scheduleDailyReminder(context, hour, minute)
+            showToast("Reminder time updated.", "success")
+        }
+    }
+
+    fun toggleBudgetAlerts(enabled: Boolean) {
+        updatePrefs { it.copy(budgetAlertsEnabled = enabled) }
+        showToast(if (enabled) "Budget alert warnings enabled." else "Budget alerts disabled.", "info")
+    }
+
+    fun testReminderNotification(context: android.content.Context) {
+        NotificationHelper.showDailyReminder(context)
+        showToast("Test notification sent.", "success")
+    }
+
+    fun toggleGlass(enabled: Boolean) {
+        updatePrefs { it.copy(glassEnabled = enabled) }
+        showToast(if (enabled) "Liquid glass enabled." else "Liquid glass disabled.", "info")
+    }
+
+    fun updateGlassBlur(blur: Int) {
+        updatePrefs { it.copy(glassBlur = blur.coerceIn(0, 24)) }
+    }
+
+    fun updateGlassOpacity(opacity: Int) {
+        updatePrefs { it.copy(glassOpacity = opacity.coerceIn(20, 100)) }
+    }
+
+    fun updateGlassRefraction(refraction: Int) {
+        updatePrefs { it.copy(glassRefraction = refraction.coerceIn(0, 40)) }
+    }
+
+    fun updateGlassRefractionHeight(height: Int) {
+        updatePrefs { it.copy(glassRefractionHeight = height.coerceIn(0, 40)) }
+    }
+
+    fun toggleGlassChromaticAberration(enabled: Boolean) {
+        updatePrefs { it.copy(glassChromaticAberration = enabled) }
+    }
+
     /* ─── Clear all ─── */
 
     fun clearAll() {
@@ -1163,6 +1313,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val normalizedExpenses = JsonArray(expensesArr.map { normalizeExpenseElement(it) })
         val newExpenses = runCatching { json.decodeFromJsonElement<List<Expense>>(normalizedExpenses) }
             .getOrElse { return "Couldn't read that file. (${it.message})" }
+        val finalExpenses = com.ledger.app.data.normalizeExpenses(newExpenses)
 
         var settings = s.settings
         obj["settings"]?.let { el ->
@@ -1244,19 +1395,383 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
         update {
             it.copy(
-                settings = settings, expenses = newExpenses, categories = categories,
+                settings = settings, expenses = finalExpenses, categories = categories,
                 catBudgets = catBudgets, topUps = topUps, balance = balance,
                 piggy = piggy, piggies = piggies, activePiggyId = piggy.id,
                 recurring = recurring, prefs = prefs,
             )
         }
         viewModelScope.launch {
-            repo.saveSettings(settings); repo.saveExpenses(newExpenses); repo.saveCategories(categories)
+            repo.saveSettings(settings); repo.saveExpenses(finalExpenses); repo.saveCategories(categories)
             repo.saveCatBudgets(catBudgets); repo.saveTopUps(topUps); repo.saveBalance(balance)
             repo.savePiggies(piggies); repo.saveRecurring(recurring); repo.savePrefs(prefs)
         }
-        showToast("Restored ${newExpenses.size} entries.", "success")
+        showToast("Restored ${finalExpenses.size} entries.", "success")
         return null
+    }
+
+    /* ─── Cloud sync (Firebase + Google Auth) ─── */
+
+    private fun initFirebaseSync() {
+        if (!FirebaseConfig.isConfigured) return
+        val auth = FirebaseManager.getAuth(repo.appContext) ?: return
+        authListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            val user = firebaseAuth.currentUser
+            val authUser = if (user != null) {
+                AuthUser(
+                    uid = user.uid,
+                    name = user.displayName,
+                    email = user.email,
+                    photoUrl = user.photoUrl?.toString()
+                )
+            } else null
+
+            _state.value = _state.value.copy(
+                authUser = authUser,
+                syncError = if (authUser == null) false else _state.value.syncError,
+                syncErrorMsg = if (authUser == null) "" else _state.value.syncErrorMsg
+            )
+
+            if (authUser != null) {
+                attachFirestoreListener(authUser.uid)
+            } else {
+                detachFirestoreListener()
+                syncedUid = null
+            }
+        }
+        auth.addAuthStateListener(authListener!!)
+    }
+
+    private fun attachFirestoreListener(uid: String) {
+        detachFirestoreListener()
+        val db = FirebaseManager.getFirestore(repo.appContext) ?: return
+        try {
+            snapshotListener = db.collection("ledger").document(uid)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w("LedgerViewModel", "Sync listener error", error)
+                        _state.value = _state.value.copy(
+                            syncError = true,
+                            syncErrorMsg = error.localizedMessage ?: "Sync error"
+                        )
+                        return@addSnapshotListener
+                    }
+
+                    if (snapshot != null && snapshot.exists()) {
+                        val data = snapshot.data ?: emptyMap<String, Any?>()
+                        viewModelScope.launch {
+                            val last = repo.getLastSync(uid)
+                            val local = _state.value
+                            val localHasData =
+                                local.settings != null || local.expenses.isNotEmpty() || local.topUps.isNotEmpty()
+                            val rawExpenses = data["expenses"] as? List<*>
+                            val rawTopUps = data["topUps"] as? List<*>
+                            val cloudLooksDefault =
+                                rawExpenses.isNullOrEmpty() && rawTopUps.isNullOrEmpty() && data["settings"] == null
+
+                            val at = snapshot.get("updatedAt")
+                            val remoteAt = when (at) {
+                                is com.google.firebase.Timestamp -> at.toDate().time
+                                is Number -> at.toLong()
+                                else -> 0L
+                            }
+
+                            if (remoteAt > last) {
+                                if (cloudLooksDefault && localHasData) {
+                                    pushSync(uid)
+                                } else {
+                                    skipNextPush = true
+                                    applyRemote(data)
+                                    repo.setLastSync(uid, remoteAt)
+                                    _state.value = _state.value.copy(
+                                        lastSyncedAt = remoteAt,
+                                        syncError = false,
+                                        syncErrorMsg = ""
+                                    )
+                                    if (last == 0L) {
+                                        showToast("Synced from cloud.", "success")
+                                    }
+                                }
+                            } else if (remoteAt == 0L) {
+                                if (cloudLooksDefault || localHasData) {
+                                    safePushSync(uid)
+                                } else {
+                                    skipNextPush = true
+                                    applyRemote(data)
+                                }
+                            } else if (remoteAt < last) {
+                                safePushSync(uid)
+                            }
+                        }
+                    } else {
+                        safePushSync(uid)
+                    }
+                    syncedUid = uid
+                }
+        } catch (e: Exception) {
+            Log.w("LedgerViewModel", "Sync subscribe failed", e)
+            _state.value = _state.value.copy(
+                syncError = true,
+                syncErrorMsg = e.localizedMessage ?: "Sync subscribe failed"
+            )
+        }
+    }
+
+    private fun detachFirestoreListener() {
+        snapshotListener?.remove()
+        snapshotListener = null
+    }
+
+    private suspend fun applyRemote(data: Map<String, Any?>) {
+        try {
+            val parsed = FirebaseSyncSerializer.parseRemote(data, _state.value.prefs, _state.value.theme)
+            var s = _state.value
+
+            parsed.expenses?.let {
+                val norm = com.ledger.app.data.normalizeExpenses(it)
+                s = s.copy(expenses = norm)
+                repo.saveExpenses(norm)
+            }
+            parsed.topUps?.let {
+                s = s.copy(topUps = it)
+                repo.saveTopUps(it)
+            }
+            parsed.balance?.let {
+                s = s.copy(balance = it)
+                repo.saveBalance(it)
+            }
+            parsed.piggies?.let {
+                val activeId = if (it.any { p -> p.id == s.activePiggyId }) s.activePiggyId else it.first().id
+                s = s.copy(piggies = it, piggy = it.first(), activePiggyId = activeId)
+                repo.savePiggies(it)
+            }
+            parsed.recurring?.let {
+                s = s.copy(recurring = it)
+                repo.saveRecurring(it)
+            }
+            parsed.settings?.let {
+                s = s.copy(settings = it)
+                repo.saveSettings(it)
+            }
+            parsed.categories?.let {
+                s = s.copy(categories = it)
+                repo.saveCategories(it)
+            }
+            parsed.catBudgets?.let {
+                s = s.copy(catBudgets = it)
+                repo.saveCatBudgets(it)
+            }
+            parsed.prefs?.let {
+                s = s.copy(prefs = it)
+                repo.savePrefs(it)
+            }
+            parsed.theme?.let {
+                s = s.copy(theme = it)
+                repo.saveTheme(it)
+            }
+            if (parsed.hasSavedThemeKey) {
+                s = s.copy(savedTheme = parsed.savedTheme)
+                repo.saveSavedTheme(parsed.savedTheme)
+            }
+
+            _state.value = computeDerived(s)
+        } catch (e: Exception) {
+            Log.w("LedgerViewModel", "applyRemote failed", e)
+        }
+    }
+
+    fun pushSync(targetUid: String? = null) {
+        val uid = targetUid ?: _state.value.authUser?.uid ?: return
+        val db = FirebaseManager.getFirestore(repo.appContext) ?: return
+        try {
+            val s = _state.value
+            val payload = FirebaseSyncSerializer.buildPayload(
+                expenses = s.expenses,
+                topUps = s.topUps,
+                balance = s.balance,
+                piggies = s.piggies,
+                recurring = s.recurring,
+                settings = s.settings,
+                categories = s.categories,
+                catBudgets = s.catBudgets,
+                prefs = s.prefs,
+                theme = s.theme,
+                savedTheme = s.savedTheme
+            )
+
+            val jsonStr = payload.toString()
+            if (jsonStr == lastPushedJson) return
+            lastPushedJson = jsonStr
+
+            val writePayload = payload.toMutableMap()
+            writePayload["updatedAt"] = FieldValue.serverTimestamp()
+
+            db.collection("ledger").document(uid).set(writePayload)
+                .addOnSuccessListener {
+                    val now = System.currentTimeMillis()
+                    viewModelScope.launch {
+                        repo.setLastSync(uid, now)
+                    }
+                    _state.value = _state.value.copy(
+                        syncError = false,
+                        syncErrorMsg = "",
+                        lastSyncedAt = now
+                    )
+                }
+                .addOnFailureListener { e ->
+                    Log.w("LedgerViewModel", "Sync push failed", e)
+                    _state.value = _state.value.copy(
+                        syncError = true,
+                        syncErrorMsg = e.localizedMessage ?: "Sync push failed"
+                    )
+                }
+        } catch (e: Exception) {
+            Log.w("LedgerViewModel", "Sync push failed", e)
+            _state.value = _state.value.copy(
+                syncError = true,
+                syncErrorMsg = e.localizedMessage ?: "Sync push failed"
+            )
+        }
+    }
+
+    private fun safePushSync(uid: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastSyncPushTime < 3000L) return
+        lastSyncPushTime = now
+        pushSync(uid)
+    }
+
+    private fun triggerDebouncedPush() {
+        if (skipNextPush) {
+            skipNextPush = false
+            return
+        }
+        val user = _state.value.authUser ?: return
+        if (syncedUid != user.uid) return
+        pushJob?.cancel()
+        pushJob = viewModelScope.launch {
+            delay(1500L)
+            pushSync(user.uid)
+        }
+    }
+
+    fun manualSync() {
+        val user = _state.value.authUser
+        if (user == null) {
+            showToast("Sign in with Google to sync.", "info")
+            return
+        }
+        showToast("Syncing...", "info")
+        lastPushedJson = null // Force push
+        pushSync(user.uid)
+    }
+
+    fun signInGoogle(activity: Activity, launcher: ActivityResultLauncher<Intent>? = null) {
+        if (!FirebaseConfig.isConfigured) {
+            showToast("Sync isn't configured yet — see the Sync section in settings.", "error")
+            return
+        }
+        if (!FirebaseManager.init(activity)) {
+            showToast("Couldn't load Firebase — check your internet connection and reload.", "error")
+            return
+        }
+
+        if (FirebaseConfig.webClientId.isNotBlank() && launcher != null) {
+            try {
+                val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                    .requestIdToken(FirebaseConfig.webClientId)
+                    .requestEmail()
+                    .build()
+                val client = GoogleSignIn.getClient(activity, gso)
+                launcher.launch(client.signInIntent)
+                return
+            } catch (e: Exception) {
+                Log.w("LedgerViewModel", "GoogleSignIn launch failed, falling back to OAuth provider", e)
+            }
+        }
+
+        launchOAuthProvider(activity)
+    }
+
+    fun launchOAuthProvider(activity: Activity) {
+        if (!FirebaseManager.init(activity)) {
+            showToast("Couldn't load Firebase — check your internet connection and reload.", "error")
+            return
+        }
+
+        val auth = FirebaseAuth.getInstance()
+        val provider = OAuthProvider.newBuilder("google.com")
+            .addCustomParameter("prompt", "select_account")
+            .build()
+
+        val pendingResultTask = auth.pendingAuthResult
+        if (pendingResultTask != null) {
+            pendingResultTask
+                .addOnSuccessListener {
+                    showToast("Signed in — syncing is on.", "success")
+                }
+                .addOnFailureListener { e ->
+                    handleAuthError(e)
+                }
+        } else {
+            auth.startActivityForSignInWithProvider(activity, provider)
+                .addOnSuccessListener {
+                    showToast("Signed in — syncing is on.", "success")
+                }
+                .addOnFailureListener { e ->
+                    handleAuthError(e)
+                }
+        }
+    }
+
+    fun signInWithGoogleToken(idToken: String) {
+        val auth = FirebaseAuth.getInstance()
+        val credential = GoogleAuthProvider.getCredential(idToken, null)
+        auth.signInWithCredential(credential)
+            .addOnSuccessListener {
+                showToast("Signed in — syncing is on.", "success")
+            }
+            .addOnFailureListener { e ->
+                handleAuthError(e)
+            }
+    }
+
+    private fun handleAuthError(e: Exception) {
+        val msg = e.localizedMessage ?: ""
+        if (msg.contains("cancelled", ignoreCase = true) || msg.contains("canceled", ignoreCase = true) || msg.contains(
+                "12501"
+            ) || msg.contains("closed", ignoreCase = true)
+        ) {
+            showToast("Sign-in cancelled.", "info")
+        } else if (msg.contains("INVALID APP ID", ignoreCase = true) || msg.contains(
+                "INVALID_APP_ID",
+                ignoreCase = true
+            )
+        ) {
+            showToast(
+                "Firebase: Add Android app (com.ledger.app) in Firebase Console, or set androidAppId in FirebaseConfig.kt.",
+                "error"
+            )
+        } else {
+            showToast(msg.ifEmpty { "Sign-in failed." }, "error")
+        }
+    }
+
+    fun signOutGoogle() {
+        try {
+            FirebaseAuth.getInstance().signOut()
+            showToast("Signed out. Changes stay on this device.", "info")
+        } catch (e: Exception) {
+            showToast("Sign out failed.", "error")
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        detachFirestoreListener()
+        authListener?.let {
+            FirebaseAuth.getInstance().removeAuthStateListener(it)
+        }
     }
 
     /* ─── Toast & confirm ─── */

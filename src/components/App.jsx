@@ -8,8 +8,8 @@ import {
 } from '../lib/constants';
 import {
   addDays, advanceDate, customFontStack, dayDiff, daysInMonth, expCats,
-  firstOfMonthKey, fmt, groupLabel, loadGoogleFont, relativeDate, store,
-  todayKey, uid,
+  firstOfMonthKey, fmt, groupLabel, loadGoogleFont, normalizeExpense, normalizeExpenses,
+  relativeDate, store, todayKey, uid,
 } from '../lib/helpers';
 import {
   FIREBASE_CONFIGURED, fbInit, firestoreSafe, getFBAuth, getFBFS,
@@ -43,7 +43,14 @@ export default function App(){
   const[theme,setTheme]=useState(()=>({...DEFAULT_THEME,...(store.get("ledger-theme")||{})}));
   const[prefs,setPrefs]=useState(()=>({...PREF_DEFAULTS,...(store.get("ledger-prefs")||{})}));
   const[settings,setSettings]=useState(()=>store.get("ledger-settings"));
-  const[expenses,setExpenses]=useState(()=>store.get("ledger-expenses")||[]);
+  const[expenses,setExpenses]=useState(()=>{
+    const stored=store.get("ledger-expenses")||[];
+    const normalized=normalizeExpenses(stored);
+    if(JSON.stringify(stored)!==JSON.stringify(normalized)){
+      store.set("ledger-expenses",normalized);
+    }
+    return normalized;
+  });
   const[categories,setCategories]=useState(()=>store.get("ledger-cats")||DEFAULT_CATS);
   const[catBudgets,setCatBudgets]=useState(()=>store.get("ledger-catbudgets")||{});
   const[topUps,setTopUps]=useState(()=>store.get("ledger-topups")||[]);
@@ -161,7 +168,10 @@ export default function App(){
      crash the renderer or clobber the local setup with defaults. */
   const applyRemote=useCallback(data=>{
     try{
-      if(Array.isArray(data.expenses)&&data.expenses.every(e=>e&&typeof e.amount==='number'&&typeof e.date==='string')){setExpenses(data.expenses);store.set("ledger-expenses",data.expenses)}
+      if(Array.isArray(data.expenses)&&data.expenses.every(e=>e&&typeof e.amount==='number'&&typeof e.date==='string')){
+        const norm=normalizeExpenses(data.expenses);
+        setExpenses(norm);store.set("ledger-expenses",norm);
+      }
       if(Array.isArray(data.topUps)&&data.topUps.every(t=>t&&typeof t.amount==='number'&&typeof t.date==='string')){setTopUps(data.topUps);store.set("ledger-topups",data.topUps)}
       if(data.balance&&typeof data.balance==='object'&&!Array.isArray(data.balance)&&typeof data.balance.start==='number'){setBalance(data.balance);store.set("ledger-balance",data.balance)}
       if(Array.isArray(data.piggies)&&data.piggies.length){setPiggies(data.piggies);store.set("ledger-piggies",data.piggies)}
@@ -821,10 +831,12 @@ export default function App(){
   /* ─── CRUD ─── */
   const addExpense=()=>{
     const val=parseFloat(amount);if(!val||val<=0)return;
-    const entry={id:uid(),date:entryDate||today,amount:val,categories:selCats,category:selCats[0],note:note.trim()};
+    const cat=selCats[0]||"food";
+    const entry={id:uid(),date:entryDate||today,amount:val,categories:[cat],category:cat,note:note.trim()};
     persistExpenses([...expenses,entry]);
     setAmount("");setNote("");setEntryDate(today);
-    showToast(`Logged ${MYR(val)} in ${selCats.map(id=>cats.find(c=>c.id===id)?.label||id).join(" + ")}.`,"success");
+    const catLabel=cats.find(c=>c.id===cat)?.label||cat;
+    showToast(`Logged ${MYR(val)} in ${catLabel}.`,"success");
   };
   const startEdit=e=>{
     const ec=expCats(e);setEditingId(e.id);setAmount(String(e.amount));setNote(e.note);setSelCats(ec.length?[ec[0]]:["food"]);setEntryDate(e.date);
@@ -832,7 +844,8 @@ export default function App(){
   };
   const updateExpense=()=>{
     const val=parseFloat(amount);if(!val||val<=0)return;
-    persistExpenses(expenses.map(e=>e.id===editingId?{...e,amount:val,categories:selCats,category:selCats[0],note:note.trim(),date:entryDate||today}:e));
+    const cat=selCats[0]||"food";
+    persistExpenses(expenses.map(e=>e.id===editingId?{...e,amount:val,categories:[cat],category:cat,note:note.trim(),date:entryDate||today}:e));
     cancelEdit();showToast("Spend updated.","success");
   };
   const cancelEdit=()=>{setEditingId(null);setAmount("");setNote("");setEntryDate(today)};
@@ -894,8 +907,9 @@ export default function App(){
         else if(data.piggy&&typeof data.piggy==='object'&&!Array.isArray(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number')persistPiggies([{id:uid(),name:'Piggy bank',target:data.piggy.target||0,saved:data.piggy.saved||0,texture:null,soundId:'coin',soundCustom:null}]);
         if(Array.isArray(data.recurring)&&data.recurring.every(r=>r&&typeof r.amount==='number'&&typeof r.type==='string'))persistRecurring(data.recurring);
         if(data.prefs)persistPrefs({...prefs,...data.prefs});
-        persistExpenses(data.expenses);
-        showToast(`Restored ${data.expenses.length} entries.`,"success");
+        const normExpenses=normalizeExpenses(data.expenses);
+        persistExpenses(normExpenses);
+        showToast(`Restored ${normExpenses.length} entries.`,"success");
       }catch(err){showToast("Couldn't read that file.","error")}
     };
     reader.readAsText(file);e.target.value="";

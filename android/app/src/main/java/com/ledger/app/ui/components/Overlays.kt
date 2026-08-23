@@ -1,14 +1,24 @@
 package com.ledger.app.ui.components
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +29,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.Wallet
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,12 +51,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
+import com.google.android.gms.common.api.ApiException
 import com.ledger.app.ui.FONT_OPTIONS
 import com.ledger.app.ui.HEAT_LEVELS
 import com.ledger.app.ui.HEAT_PRESETS
@@ -55,6 +76,9 @@ import com.ledger.app.ui.parseColor
 import com.ledger.app.util.CURRENCIES
 import com.ledger.app.util.fmt
 import com.ledger.app.util.relativeDate
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /* ═══════════════════════════════════════════
    OVERLAYS — drawers, dialogs
@@ -297,7 +321,7 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
 fun CustomizeDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
     var tab by remember { mutableStateOf("theme") }
 
-    DrawerSheet(onClose) {
+    DrawerSheet(onClose, contentHeight = 560.dp) {
         DrawerHeader("Customize", onClose)
         RangeTabs(
             options = listOf("theme" to "Theme", "chart" to "Chart", "cats" to "Categories", "prefs" to "Prefs"),
@@ -374,6 +398,144 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
         ).forEach { (k, l) ->
             ColorRow(l, themeField(s, k)) { vm.updateColor(k, it) }
         }
+
+        SectionTitle("Wallpaper")
+        val context = LocalContext.current
+        val wallpaperPicker = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri ->
+            uri?.let { vm.setWallpaperFromUri(context, it) }
+        }
+
+        if (!s.prefs.wallpaper.isNullOrEmpty()) {
+            val bitmap = remember(s.prefs.wallpaper) {
+                try {
+                    BitmapFactory.decodeFile(s.prefs.wallpaper)?.asImageBitmap()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            if (bitmap != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(110.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                ) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = "Wallpaper preview",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (s.prefs.wallBlur > 0) Modifier.blur(s.prefs.wallBlur.dp) else Modifier)
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                (parseColor(s.theme.bg) ?: Color.Black).copy(alpha = s.prefs.wallpaperDim / 100f)
+                            )
+                    )
+                }
+            }
+
+            SliderRow(
+                label = "Background dim",
+                valueText = "${s.prefs.wallpaperDim}%",
+                value = s.prefs.wallpaperDim.toFloat(),
+                range = 0f..90f,
+                steps = 17,
+                onValueChange = { vm.updateWallpaperDim(it.toInt()) }
+            )
+            SliderRow(
+                label = "Blur intensity",
+                valueText = "${s.prefs.wallBlur}dp",
+                value = s.prefs.wallBlur.toFloat(),
+                range = 0f..20f,
+                steps = 19,
+                onValueChange = { vm.updateWallBlur(it.toInt()) }
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Btn(
+                    "Replace photo",
+                    onClick = { wallpaperPicker.launch("image/*") },
+                    variant = "secondary",
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Upload
+                )
+                Btn(
+                    "Remove",
+                    onClick = { vm.clearWallpaper(context) },
+                    variant = "ghost",
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Delete
+                )
+            }
+        } else {
+            Btn(
+                "Set photo wallpaper",
+                onClick = { wallpaperPicker.launch("image/*") },
+                variant = "secondary",
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Outlined.Image
+            )
+            SectionDesc("Upload a custom photo for your dashboard background.")
+        }
+
+        SectionTitle("Cards — liquid glass")
+        ToggleRow(
+            "Liquid glass cards",
+            "Give the dashboard cards a frosted, translucent glass look over your wallpaper.",
+            s.prefs.glassEnabled
+        ) {
+            vm.toggleGlass(it)
+        }
+        if (s.prefs.glassEnabled) {
+            SliderRow(
+                label = "Gaussian blur",
+                valueText = "${s.prefs.glassBlur}dp",
+                value = s.prefs.glassBlur.toFloat(),
+                range = 0f..24f,
+                steps = 23,
+                onValueChange = { vm.updateGlassBlur(it.toInt()) }
+            )
+            SliderRow(
+                label = "Transparency",
+                valueText = "${s.prefs.glassOpacity}%",
+                value = s.prefs.glassOpacity.toFloat(),
+                range = 20f..100f,
+                steps = 15,
+                onValueChange = { vm.updateGlassOpacity(it.toInt()) }
+            )
+            SliderRow(
+                label = "Refraction height",
+                valueText = "${s.prefs.glassRefractionHeight}dp",
+                value = s.prefs.glassRefractionHeight.toFloat(),
+                range = 0f..40f,
+                steps = 19,
+                onValueChange = { vm.updateGlassRefractionHeight(it.toInt()) }
+            )
+            SliderRow(
+                label = "Refraction amount",
+                valueText = "${s.prefs.glassRefraction}dp",
+                value = s.prefs.glassRefraction.toFloat(),
+                range = 0f..40f,
+                steps = 19,
+                onValueChange = { vm.updateGlassRefraction(it.toInt()) }
+            )
+            ToggleRow(
+                "Chromatic aberration",
+                "Adds a subtle prismatic RGB edge to the refraction.",
+                s.prefs.glassChromaticAberration
+            ) {
+                vm.toggleGlassChromaticAberration(it)
+            }
+            SectionDesc("Applied to both the bottom navigation pill and the dashboard cards. Lower transparency = more frosted.")
+        }
+
         SectionTitle("Card layout")
         SectionDesc("Use the arrow buttons on each card to rearrange the order.")
         Btn("Reset card order", onClick = vm::resetCardOrder, variant = "ghost", modifier = Modifier.fillMaxWidth())
@@ -385,17 +547,21 @@ private fun ChartTab(vm: LedgerViewModel, s: LedgerState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionTitle("Preview")
         val previewSlices = remember(s.cats) {
-            val pcts = listOf(35f, 25f, 25f, 15f)
+            val pcts = listOf(35.0, 25.0, 25.0, 15.0)
+            var cum = 0.0
             s.cats.take(4).mapIndexed { i, c ->
-                com.ledger.app.ui.PieSlice(
+                val pct = pcts.getOrElse(i) { 10.0 }
+                val slice = com.ledger.app.ui.PieSlice(
                     c.id,
                     c.label,
                     c.color,
-                    pcts[i].toDouble(),
-                    pcts[i].toDouble(),
-                    pcts[i].toDouble(),
-                    i * pcts[i].toDouble()
+                    pct,
+                    pct,
+                    pct,
+                    cum
                 )
+                cum += pct
+                slice
             }
         }
         PieChart(
@@ -537,8 +703,165 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
             options = CURRENCIES.toList().map { (k, v) -> k to "${v.symbol} $k — ${v.label}" },
             onChange = { vm.updatePrefs { p -> p.copy(currency = it) } },
         )
+
+        SectionTitle("Notifications & reminders")
+        val context = LocalContext.current
+        ToggleRow(
+            "Daily spend reminder",
+            "Get an evening reminder to log your daily expenses.",
+            s.prefs.notificationsEnabled
+        ) {
+            vm.toggleNotifications(it, context)
+        }
+
+        if (s.prefs.notificationsEnabled) {
+            FieldLabel("Reminder time")
+            Spacer(Modifier.height(4.dp))
+            val timeKey = "${s.prefs.reminderHour}:${s.prefs.reminderMinute}"
+            val timeOptions = listOf(
+                "19:0" to "7:00 PM (19:00)",
+                "20:0" to "8:00 PM (20:00)",
+                "21:0" to "9:00 PM (21:00)",
+                "22:0" to "10:00 PM (22:00)",
+                "12:0" to "12:00 PM (12:00)",
+                "18:0" to "6:00 PM (18:00)",
+            )
+            SelectField(
+                value = timeKey,
+                options = timeOptions,
+                onChange = { key ->
+                    val parts = key.split(":")
+                    val h = parts.getOrNull(0)?.toIntOrNull() ?: 20
+                    val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                    vm.setReminderTime(h, m, context)
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            ToggleRow(
+                "Budget alert warnings",
+                "Notify when spending exceeds your daily allowance.",
+                s.prefs.budgetAlertsEnabled
+            ) {
+                vm.toggleBudgetAlerts(it)
+            }
+
+            Btn(
+                "Send test reminder",
+                onClick = { vm.testReminderNotification(context) },
+                variant = "ghost",
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Outlined.Notifications
+            )
+        }
+
         SectionTitle("Cloud sync")
-        SectionDesc("Cloud sync is not ported to Android yet. Use Backup (JSON) / Load backup to move data between this app and the web version — the file format is identical.")
+        if (s.isFirebaseConfigured) {
+            val authUser = s.authUser
+            if (authUser != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val initial =
+                            (authUser.name?.firstOrNull() ?: authUser.email?.firstOrNull() ?: 'G').uppercaseChar()
+                        Text(
+                            text = initial.toString(),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = authUser.name ?: authUser.email ?: "Signed in",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                        val subText = if (s.syncError) {
+                            if (s.syncErrorMsg.isNotEmpty()) s.syncErrorMsg else "Sync error — will retry automatically"
+                        } else {
+                            authUser.email ?: ""
+                        }
+                        Text(
+                            text = subText,
+                            fontSize = 11.5.sp,
+                            color = if (s.syncError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                        if (!s.syncError && authUser.uid.isNotEmpty()) {
+                            Text(
+                                text = "Account ID ${authUser.uid.take(8)}…",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (!s.syncError && s.lastSyncedAt > 0L) {
+                            val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(s.lastSyncedAt))
+                            Text(
+                                text = "Last synced $timeStr",
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Btn("Sign out", onClick = vm::signOutGoogle, variant = "ghost", small = true)
+                }
+            } else {
+                val context = LocalContext.current
+                val googleSignInLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) { result ->
+                    val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    try {
+                        val account = task.getResult(ApiException::class.java)
+                        val idToken = account?.idToken
+                        if (idToken != null) {
+                            vm.signInWithGoogleToken(idToken)
+                        } else {
+                            vm.showToast("Couldn't retrieve Google ID token.", "error")
+                        }
+                    } catch (e: ApiException) {
+                        if (e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CANCELLED) {
+                            vm.showToast("Sign-in cancelled.", "info")
+                        } else {
+                            vm.showToast("Google sign-in error (${e.statusCode}): ${e.localizedMessage ?: ""}", "error")
+                        }
+                    }
+                }
+
+                Btn(
+                    "Sign in with Google",
+                    onClick = {
+                        findActivity(context)?.let { vm.signInGoogle(it, googleSignInLauncher) }
+                    },
+                    variant = "secondary",
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Outlined.Cloud
+                )
+            }
+            SectionDesc(
+                if (authUser != null)
+                    "Your budget, balance, expenses, transfers, categories, theme and preferences sync automatically. The newest copy wins — edits from any device appear here."
+                else
+                    "Sign in to back up and sync your budget across devices with your Google account. Your data stays private — only you can read your copy."
+            )
+        } else {
+            SectionDesc(
+                "Sync is ready but needs a Firebase project. Open FirebaseConfig.kt, find the FIREBASE_CONFIG values, and paste your Firebase project config. Then enable Google sign-in and create a Firestore database with security rules."
+            )
+        }
         SectionTitle("Keyboard shortcuts")
         listOf(
             "Log spend" to "Tap the Log spend button",
@@ -559,12 +882,20 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DrawerSheet(onClose: () -> Unit, content: @Composable () -> Unit) {
+private fun DrawerSheet(
+    onClose: () -> Unit,
+    contentHeight: androidx.compose.ui.unit.Dp? = null,
+    content: @Composable () -> Unit
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState) {
         Column(
             Modifier
                 .fillMaxWidth()
+                .then(
+                    if (contentHeight != null) Modifier.height(contentHeight)
+                    else Modifier.heightIn(min = 460.dp)
+                )
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp)
                 .padding(bottom = 28.dp),
@@ -607,4 +938,13 @@ private fun themeField(s: LedgerState, k: String): String = when (k) {
     "accentFg" -> s.theme.accentFg; "text" -> s.theme.text
     "positive" -> s.theme.positive; "warning" -> s.theme.warning; "negative" -> s.theme.negative
     else -> ""
+}
+
+private fun findActivity(context: Context): Activity? {
+    var ctx = context
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

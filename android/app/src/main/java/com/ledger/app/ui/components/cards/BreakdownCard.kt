@@ -38,6 +38,7 @@ import com.ledger.app.ui.components.CardContainer
 import com.ledger.app.ui.components.DateField
 import com.ledger.app.ui.components.FieldLabel
 import com.ledger.app.ui.components.RangeTabs
+import com.ledger.app.ui.components.StatDivider
 import com.ledger.app.ui.parseColor
 
 /* Category breakdown — range tabs, donut, per-category bars + budgets */
@@ -96,8 +97,13 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
         }
 
         Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             TotalsBox("Total spent", fmtD(s, data.totalSpent), data.rangeLabel, Modifier.weight(1f))
+            StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
             val pctColor = when {
                 data.budgetPct >= 100 -> negative
                 data.budgetPct >= 75 -> warning
@@ -112,10 +118,17 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
         }
 
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Insight("Avg spending/day", fmtD(s, data.avgPerDay))
+            StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
             Insight("Top", data.topCategory?.label ?: "—")
+            StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
             Insight("Txns", data.txnCount.toString())
+            StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
             Insight("Biggest", data.biggestInRange?.let { fmtD(s, it.amount) } ?: "—")
         }
 

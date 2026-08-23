@@ -93,6 +93,25 @@ class Repository(private val context: Context) {
     suspend fun savePiggy(v: Piggy) = savePiggies(listOf(v))
     suspend fun saveRecurring(v: List<Rule>) = write("ledger-recurring", v)
 
+    val appContext: Context get() = context
+
+    suspend fun getLastSync(uid: String): Long {
+        val map = read<Map<String, Long>>("ledger-synclast2") ?: emptyMap()
+        var t = map[uid] ?: 0L
+        if (t > System.currentTimeMillis() + 60000L) {
+            val next = map.toMutableMap().apply { remove(uid) }
+            write("ledger-synclast2", next)
+            t = 0L
+        }
+        return t
+    }
+
+    suspend fun setLastSync(uid: String, t: Long) {
+        val map = read<Map<String, Long>>("ledger-synclast2") ?: emptyMap()
+        val next = map.toMutableMap().apply { put(uid, t) }
+        write("ledger-synclast2", next)
+    }
+
     suspend fun clearAll() {
         listOf(
             "ledger-theme", "ledger-theme-saved", "ledger-prefs", "ledger-settings",

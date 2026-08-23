@@ -131,8 +131,13 @@ fun BackupCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
+            val footerText = if (s.authUser != null) {
+                "Cloud sync is active (${s.authUser.email ?: s.authUser.name ?: "signed in"})."
+            } else {
+                "Your data is stored locally on this device. Sign in to cloud sync in Settings to sync across devices."
+            }
             Text(
-                "Your data is stored locally on this device. Nothing is sent anywhere.",
+                footerText,
                 fontSize = 11.sp, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.height(0.dp))

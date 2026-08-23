@@ -129,6 +129,27 @@ data class Prefs(
     val cardOrder: List<String> = defaultCardOrder,
     val balancesEnabled: Boolean = true,
     val heroMode: String = "daily",  // "daily" | "balance"
+    val wallpaper: String? = null,
+    val wallpaperDim: Int = 60,
+    val wallBlur: Int = 0,
+    val notificationsEnabled: Boolean = true,
+    val reminderHour: Int = 20,
+    val reminderMinute: Int = 0,
+    val budgetAlertsEnabled: Boolean = true,
+    val glassEnabled: Boolean = false,
+    val glassBlur: Int = 8,
+    val glassOpacity: Int = 76,
+    val glassRefraction: Int = 24,
+    val glassRefractionHeight: Int = 12,
+    val glassChromaticAberration: Boolean = false,
+)
+
+@Serializable
+data class AuthUser(
+    val uid: String,
+    val name: String? = null,
+    val email: String? = null,
+    val photoUrl: String? = null,
 )
 
 /* ─── Derived (non-persisted) types ─── */
@@ -151,11 +172,19 @@ data class FrequentEntry(
     val last: String,
 )
 
-/** Effective category list for an expense — new entries carry `categories`,
- *  old synced/imported ones only have a single `category`. */
-fun expCats(e: Expense): List<String> =
-    if (e.categories.isNotEmpty()) e.categories
-    else e.category?.let { listOf(it) } ?: emptyList()
+/** Enforce single-category selection across all expenses */
+fun normalizeExpense(e: Expense): Expense {
+    val cat = (e.categories.firstOrNull() ?: e.category) ?: "food"
+    return e.copy(category = cat, categories = listOf(cat))
+}
+
+fun normalizeExpenses(list: List<Expense>): List<Expense> = list.map(::normalizeExpense)
+
+/** Effective category list for an expense — returns single category */
+fun expCats(e: Expense): List<String> {
+    val cat = (e.categories.firstOrNull() ?: e.category) ?: "food"
+    return listOf(cat)
+}
 
 /* ─── Defaults ─── */
 

@@ -31,7 +31,7 @@ import com.ledger.app.ui.PieSlice
 import com.ledger.app.ui.parseColor
 import kotlin.math.max
 
-/* Donut chart — ported from the web app's SVG circles (dash = pct − gap) */
+/* Donut chart — proportional spending segments (0..100% -> 0..360 degrees) */
 @Composable
 fun PieChart(
     slices: List<PieSlice>,
@@ -44,19 +44,21 @@ fun PieChart(
     val cs = MaterialTheme.colorScheme
     Box(modifier.size(140.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(140.dp)) {
-            val stroke = Stroke(width = thickness.dp.toPx(), cap = StrokeCap.Butt)
+            val strokeWidthPx = (thickness * 2.6f).dp.toPx()
+            val stroke = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
             drawArc(
-                color = if (slices.isEmpty()) cs.outlineVariant else cs.outline,
+                color = if (slices.isEmpty()) cs.outlineVariant else cs.outline.copy(alpha = 0.25f),
                 startAngle = 0f, sweepAngle = 360f,
                 useCenter = false,
                 style = stroke,
             )
-            // SVG arcs run clockwise from 12 o'clock; Canvas angles run from 3 o'clock.
+            // Slices run clockwise starting from 12 o'clock (-90 degrees)
             slices.forEach { slice ->
                 val color = parseColor(slice.color) ?: cs.primary
-                val gapAngle = gap * 0.3f
-                val sweep = max(0.1f, slice.dash.toFloat() - gapAngle)
-                val startAngle = -90f + (slice.offset.toFloat() + gapAngle / 2f)
+                val sweepDegrees = (slice.pct.toFloat() * 3.6f)
+                val gapDegrees = if (slices.size > 1) gap * 1.5f else 0f
+                val sweep = max(0.5f, sweepDegrees - gapDegrees)
+                val startAngle = -90f + (slice.offset.toFloat() * 3.6f + gapDegrees / 2f)
                 drawArc(
                     color = color,
                     startAngle = startAngle,

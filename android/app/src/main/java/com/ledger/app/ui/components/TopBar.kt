@@ -35,11 +35,13 @@ fun TopBar(
     onLogSpend: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenDrawer: () -> Unit,
+    isWallpaper: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     val tick = rememberHapticTick()
+    val barBg = if (isWallpaper) cs.background.copy(alpha = 0.82f) else cs.background
     Row(
-        Modifier.fillMaxWidth().background(cs.background).statusBarsPadding()
+        Modifier.fillMaxWidth().background(barBg).statusBarsPadding()
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

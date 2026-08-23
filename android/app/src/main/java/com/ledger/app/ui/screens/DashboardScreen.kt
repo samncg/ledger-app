@@ -1,5 +1,10 @@
 package com.ledger.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -38,11 +44,10 @@ import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.BudgetDrawer
 import com.ledger.app.ui.components.ConfirmDialog
 import com.ledger.app.ui.components.CustomizeDrawer
-import com.ledger.app.ui.components.HealthBadge
 import com.ledger.app.ui.components.Hero
+import com.ledger.app.ui.components.LiquidGlassNavBar
 import com.ledger.app.ui.components.MoneyDrawer
 import com.ledger.app.ui.components.ToastOverlay
-import com.ledger.app.ui.components.TopBar
 import com.ledger.app.ui.components.cards.AutoCard
 import com.ledger.app.ui.components.cards.BackupCard
 import com.ledger.app.ui.components.cards.BreakdownCard
@@ -56,15 +61,14 @@ import com.ledger.app.util.fmt
    ═══════════════════════════════════════════ */
 
 @Composable
-fun DashboardScreen(vm: LedgerViewModel, s: LedgerState) {
+fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean = false) {
     val cs = MaterialTheme.colorScheme
-    val myr: (Double) -> String = { fmt(it, s.cur) }
 
     var showMoney by remember { mutableStateOf(false) }
     var moneyMode by remember { mutableStateOf("budget") }
     var showBudget by remember { mutableStateOf(false) }
     var showCustomize by remember { mutableStateOf(false) }
-    var showLog by remember { mutableStateOf(false) }
+    var showLog by remember { mutableStateOf(initialShowLog) }
     var showHistory by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
@@ -74,120 +78,134 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState) {
         "auto" to "Automations", "piggy" to "Piggy bank", "backup" to "Data & backup",
     )
 
-    Box(Modifier.fillMaxSize().background(cs.background)) {
-        Column(Modifier.fillMaxSize()) {
-            TopBar(
-                onLogSpend = { showLog = true },
-                onOpenHistory = { showHistory = true },
-                onOpenDrawer = { showCustomize = true },
-            )
-            LazyColumn(
-                Modifier.fillMaxSize().navigationBarsPadding(),
-                state = listState,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                item(key = "hero") {
-                    Hero(
-                        s,
-                        myr,
-                        onMoveMoney = { moneyMode = "budget"; showMoney = true }) { HealthBadge(s) }
-                }
-                items(count = cardOrder.size, key = { cardOrder[it] }) { index ->
-                    val id = cardOrder[index]
-                    Column {
-                        /* reorder bar */
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                cardLabels[id] ?: id,
-                                fontSize = 10.sp,
-                                color = cs.onSurfaceVariant,
-                                letterSpacing = 0.5.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Row {
-                                IconButton(
-                                    onClick = { vm.moveCard(id, -1) },
-                                    enabled = index > 0,
-                                    modifier = Modifier.height(26.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.KeyboardArrowUp,
-                                        "Move up",
-                                        Modifier.size(16.dp),
-                                        tint = if (index > 0) cs.onSurfaceVariant else cs.outlineVariant
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { vm.moveCard(id, 1) },
-                                    enabled = index < cardOrder.size - 1,
-                                    modifier = Modifier.height(26.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.KeyboardArrowDown,
-                                        "Move down",
-                                        Modifier.size(16.dp),
-                                        tint = if (index < cardOrder.size - 1) cs.onSurfaceVariant else cs.outlineVariant
-                                    )
-                                }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 96.dp),
+        ) {
+            item(key = "hero") {
+                Hero(
+                    s,
+                    { fmt(it, s.cur) },
+                    onMoveMoney = { moneyMode = "budget"; showMoney = true })
+            }
+            items(count = cardOrder.size, key = { cardOrder[it] }) { index ->
+                val id = cardOrder[index]
+                Column {
+                    /* reorder bar */
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            cardLabels[id] ?: id,
+                            fontSize = 10.sp,
+                            color = cs.onSurfaceVariant,
+                            letterSpacing = 0.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row {
+                            IconButton(
+                                onClick = { vm.moveCard(id, -1) },
+                                enabled = index > 0,
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.KeyboardArrowUp,
+                                    "Move up",
+                                    Modifier.size(16.dp),
+                                    tint = if (index > 0) cs.onSurfaceVariant else cs.outlineVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = { vm.moveCard(id, 1) },
+                                enabled = index < cardOrder.size - 1,
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.KeyboardArrowDown,
+                                    "Move down",
+                                    Modifier.size(16.dp),
+                                    tint = if (index < cardOrder.size - 1) cs.onSurfaceVariant else cs.outlineVariant
+                                )
                             }
                         }
-                        Spacer(Modifier.height(2.dp))
-                        when (id) {
-                            "breakdown" -> BreakdownCard(vm, s)
-                            "trend" -> TrendCard(vm, s)
-                            "auto" -> AutoCard(vm, s)
-                            "piggy" -> PiggyCard(vm, s)
-                            "backup" -> BackupCard(
-                                vm,
-                                s,
-                                onEditBudget = { showBudget = true },
-                                onMoveMoney = { moneyMode = "budget"; showMoney = true })
-                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    when (id) {
+                        "breakdown" -> BreakdownCard(vm, s)
+                        "trend" -> TrendCard(vm, s)
+                        "auto" -> AutoCard(vm, s)
+                        "piggy" -> PiggyCard(vm, s)
+                        "backup" -> BackupCard(
+                            vm,
+                            s,
+                            onEditBudget = { showBudget = true },
+                            onMoveMoney = { moneyMode = "budget"; showMoney = true })
                     }
                 }
             }
         }
 
-        /* ── Overlays ── */
-        ToastOverlay(
-            toast = vm.toast,
-            dotColor = when (vm.toast?.type) {
-                "success" -> parseColor(s.theme.positive) ?: cs.primary
-                "error" -> parseColor(s.theme.negative) ?: cs.error
-                else -> parseColor(s.theme.accent) ?: cs.primary
-            },
-            onDismiss = vm::dismissToast,
+        /* Bottom liquid-glass nav pill — History · Log spend · Settings */
+        LiquidGlassNavBar(
+            onLogSpend = { showLog = true },
+            onOpenHistory = { showHistory = true },
+            onOpenDrawer = { showCustomize = true },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp),
         )
+    }
 
-        ConfirmDialog(vm.confirm)
+    /* ── Overlays ── */
+    ToastOverlay(
+        toast = vm.toast,
+        dotColor = when (vm.toast?.type) {
+            "success" -> parseColor(s.theme.positive) ?: cs.primary
+            "error" -> parseColor(s.theme.negative) ?: cs.error
+            else -> parseColor(s.theme.accent) ?: cs.primary
+        },
+        onDismiss = vm::dismissToast,
+    )
 
-        if (showMoney) {
-            MoneyDrawer(vm, s, moneyMode, { moneyMode = it }, onClose = { showMoney = false })
-        }
-        if (showBudget) {
-            BudgetDrawer(vm, s, onClose = { showBudget = false })
-        }
-        if (showCustomize) {
-            CustomizeDrawer(vm, s, onClose = { showCustomize = false })
-        }
-        if (showLog) {
-            LogScreen(vm, s, onClose = { showLog = false })
-        }
-        if (showHistory) {
-            HistoryScreen(
-                vm, s,
-                onClose = { showHistory = false },
-                onEditEntry = { entry ->
-                    vm.startEdit(entry)
-                    showHistory = false
-                    showLog = true
-                },
-            )
-        }
+    ConfirmDialog(vm.confirm)
+
+    if (showMoney) {
+        MoneyDrawer(vm, s, moneyMode, { moneyMode = it }, onClose = { showMoney = false })
+    }
+    if (showBudget) {
+        BudgetDrawer(vm, s, onClose = { showBudget = false })
+    }
+    if (showCustomize) {
+        CustomizeDrawer(vm, s, onClose = { showCustomize = false })
+    }
+    AnimatedVisibility(
+        visible = showLog,
+        enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+    ) {
+        LogScreen(vm, s, onClose = { showLog = false })
+    }
+    AnimatedVisibility(
+        visible = showHistory,
+        enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+    ) {
+        HistoryScreen(
+            vm, s,
+            onClose = { showHistory = false },
+            onEditEntry = { entry ->
+                vm.startEdit(entry)
+                showHistory = false
+                showLog = true
+            },
+        )
     }
 }

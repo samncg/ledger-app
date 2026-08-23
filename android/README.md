@@ -35,6 +35,10 @@ Everything that matters for budgeting, ported 1:1 from the web app's logic:
 - Automations: recurring spending / top-ups / balance rules with backfill
 - Piggy bank: goal, deposits, break (moves back to balance)
 - Data & backup: JSON backup (web-compatible format), CSV export, restore
+- Cloud sync: Firebase Firestore + Google Sign-In synchronization across web and Android apps
+- Wallpaper: Custom photo backdrop with adjustable background dimming and blur intensity
+- Liquid glass: Frosted glass bottom navigation pill (History · Log spend · Settings) with a sliding switch thumb; opt-in frosted-glass dashboard cards with blur and transparency controls
+- Notifications & Reminders: Daily evening log-spend reminders (with custom time and toggle in settings) and budget allowance alerts
 - 10 theme presets, full color customization, heatmap palettes, font choice,
   compact density, card reordering, light/dark toggle
 - Log-spend and History are full-screen views behind their top-bar buttons;
@@ -42,11 +46,9 @@ Everything that matters for budgeting, ported 1:1 from the web app's logic:
 
 ## What's intentionally different (web-only cosmetics)
 
-- Wallpaper photos/videos, weather (rain/snow) canvas effects, 3D tilt,
-  the desktop cat, tab-title typewriter, custom Google Fonts
+- Weather (rain/snow) canvas effects, 3D tilt, the desktop cat, tab-title typewriter
 - Piggy-bank GIF → 🐷 emoji; deposit sounds/confetti → toasts
 - ⌘ keyboard shortcuts → the Log spend and History top-bar buttons
-- Cloud sync (Firebase) → not ported; use JSON backups instead
 
 ## Data & files
 
