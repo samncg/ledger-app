@@ -13,13 +13,14 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 - Daily allowance budgeting with rollover — unspent money carries to the next day
 - Optional **bank balance system**: keep a balance, move money into your budget, and bank leftover allowance automatically
 - Top-ups & transfers (move to budget · return to balance · add · withdraw)
-- Quick-log spending with frequent suggestions, quick amounts, and multi-category selection
+- Quick-log spending with frequent suggestions, quick amounts, and single-category selection
 - **Category breakdown**: donut chart, per-category bars with optional budgets, range filters
 - **Spending trend**: line chart with per-category series and a GitHub-style heatmap
 - Searchable, filterable, sortable **history** with date grouping
 - **Automations**: recurring spending / top-ups / balance rules with automatic backfill
 - **Piggy bank**: savings goal with deposits and a break option
 - 10 theme presets with full color customization, fonts, compact density, reorderable cards
+- **Liquid glass** UI (Android): shader-backed blur, refraction, vibrancy and chromatic aberration on the bottom navigation pill and optional frosted dashboard cards
 - JSON backup & CSV export — the backup format is identical across web and Android, so you can move data freely between platforms
 
 ## Web app
@@ -81,6 +82,8 @@ The native port lives in [`android/`](android/README.md) — open that folder in
 cd android
 ./gradlew assembleDebug   # APK at app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Requires **JDK 17+**, Android SDK (API 35), and **Kotlin 2.3.0** (the project uses Compose's shader-backed liquid-glass library). The full refraction/blur/vibrancy effects need an emulator or device on **Android API 33+** (AGSL); on API 26–32 the glass degrades to a basic blur.
 
 ## Data & privacy
 

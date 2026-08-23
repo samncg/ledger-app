@@ -1,9 +1,9 @@
 # Ledger (Android)
 
 Native Android port of the Ledger personal-budget app (the web version lives in
-the parent folder). Kotlin + Jetpack Compose + DataStore. No cloud dependencies —
-all data stays on-device, and backups use the exact same JSON format as the web
-app, so you can move freely between platforms.
+the parent folder). Kotlin + Jetpack Compose + DataStore + Firebase. Data stays
+on-device by default; cloud sync is opt-in, and backups use the exact same JSON format
+as the web app so you can move freely between platforms.
 
 ## Build & run
 
@@ -15,8 +15,10 @@ app, so you can move freely between platforms.
    # APK at app/build/outputs/apk/debug/app-debug.apk
    ```
 
-Requirements: JDK 17+, Android SDK (API 35), Android Studio with the Android
-Gradle Plugin 8.5 (downloaded automatically by the Gradle wrapper).
+Requirements: **JDK 17+**, Android SDK (API 35), and **Kotlin 2.3.0**.
+The full liquid-glass shaders (blur / refraction / vibrancy / chromatic aberration)
+require **Android API 33+** (AGSL); on API 26–32 the glass gracefully degrades to a
+basic blur.
 
 ## What's ported
 
@@ -25,7 +27,7 @@ Everything that matters for budgeting, ported 1:1 from the web app's logic:
 - Setup (budget, period, start date, bank balance, currency)
 - Daily allowance, rollover, bank balance + banked leftovers, streaks,
   top-ups / money moves (budget · balance · return · withdraw)
-- Log-a-spend card with quick amounts, frequent suggestions, multi-category
+- Log-a-spend card with quick amounts, frequent suggestions, single-category
   selection, edit/duplicate/delete with undo
 - Category breakdown: period/7d/month/all/custom ranges, donut chart,
   per-category bars with optional budgets, insights
@@ -37,18 +39,19 @@ Everything that matters for budgeting, ported 1:1 from the web app's logic:
 - Data & backup: JSON backup (web-compatible format), CSV export, restore
 - Cloud sync: Firebase Firestore + Google Sign-In synchronization across web and Android apps
 - Wallpaper: Custom photo backdrop with adjustable background dimming and blur intensity
-- Liquid glass: Frosted glass bottom navigation pill (History · Log spend · Settings) with a sliding switch thumb; opt-in frosted-glass dashboard cards with blur and transparency controls
-- Notifications & Reminders: Daily evening log-spend reminders (with custom time and toggle in settings) and budget allowance alerts
+- Liquid glass: shader-backed glass on the bottom navigation pill (History · Log spend · Settings) with a sliding switch thumb and spring animation; opt-in frosted-glass cards. Blur, transparency, refraction amount/height and chromatic aberration are adjustable in Settings → Theme
+- Notifications & Reminders: Daily evening log-spend reminders (custom time + toggle in settings) and budget allowance alerts
 - 10 theme presets, full color customization, heatmap palettes, font choice,
   compact density, card reordering, light/dark toggle
-- Log-spend and History are full-screen views behind their top-bar buttons;
-  the dashboard keeps hero + breakdown + trend + automations + piggy + backup
+- History and Log spend are full-screen views that open with a slide-up animation
+  from the bottom navigation pill; the dashboard keeps the hero summary + breakdown + trend + automations + piggy + backup
 
 ## What's intentionally different (web-only cosmetics)
 
 - Weather (rain/snow) canvas effects, 3D tilt, the desktop cat, tab-title typewriter
 - Piggy-bank GIF → 🐷 emoji; deposit sounds/confetti → toasts
-- ⌘ keyboard shortcuts → the Log spend and History top-bar buttons
+- ⌘ keyboard shortcuts → the History and Log spend buttons on the bottom navigation pill
+- Home-screen widgets / custom launchers are not ported
 
 ## Data & files
 
