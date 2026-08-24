@@ -4,6 +4,10 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 
 > **▶ [Try the web version live](https://samncg.github.io/ledger/)** — no account needed, works in any browser.
 
+<p align="center">
+  <img src="ledger.png" alt="Ledger app icon" width="160" />
+</p>
+
 - **Web app** — React + Vite, works fully offline, data stays in your browser
 - **Android app** — native Kotlin + Jetpack Compose port in [`android/`](android/README.md)
 - **No account required** — everything is stored on your device; optional Google sign-in syncs between devices
