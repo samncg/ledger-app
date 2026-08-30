@@ -36,6 +36,11 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 
 ## v0.1.x — one-off session log (reverse-chronological)
 
+- Feature (Android): "Glass the inside cards" toggle added under Liquid glass — lets the Log a spend / History cards themselves be liquid glass on a flat light background instead of frosting the whole backdrop; the backdrop frosted mode was also lightened (white lift + lower tint) so the screens aren't so dark.
+- Fix (Android): History/Log a spend full-screen glass reverted to safe blur + tint that follows the glass blur/transparency settings (the full refraction shader crashed on full-screen); removed the laggy liquid-glass panel from the Settings/Budget/Money drawers (kept solid).
+- Fix (Android): Log a spend / History full-screen backdrops and the drawer panels now render as real shader-based liquid glass (blur + refraction + chromatic, like the cards) with a translucent tint, so they look glassy rather than a near-opaque blur.
+- UI (Android): Settings/Budget/Money drawer panels now render as frosted liquid glass (blur + tint over the wallpaper) when "Liquid glass screens" is on, instead of a solid surface.
+- Feature (Android): "Liquid glass screens" toggle added in Settings → Theme; when on, the Log a spend and History drawers render a frosted liquid-glass backdrop (new `prefs.glassScreens` + `GlassStyle.screensGlass`).
 - Fix (Android): "Daily spend · this period" strip now supports sliding a finger across the bars (scrub) — each bar under the finger is selected with a haptic tick, showing that day's date + spending; single taps still work.
 - Fix (Android): "Daily spend · this period" strip replaced horizontal scrolling with tap-to-inspect — tapping a bar selects it and shows that day's date + spending (and the detail line clears on re-tap).
 - Feature (Android): month selector added to the Spending trend and Category breakdown cards so you can browse previous months; added `monthStartKey`/`monthEndKey`/`monthLabel` date helpers and made `trend()`/`breakdown()` accept an end-date reference.

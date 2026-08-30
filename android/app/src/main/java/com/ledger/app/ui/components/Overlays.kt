@@ -76,6 +76,7 @@ import com.ledger.app.ui.parseColor
 import com.ledger.app.util.CURRENCIES
 import com.ledger.app.util.fmt
 import com.ledger.app.util.relativeDate
+
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -485,7 +486,7 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
             SectionDesc("Upload a custom photo for your dashboard background.")
         }
 
-        SectionTitle("Cards — liquid glass")
+        SectionTitle("Liquid glass")
         ToggleRow(
             "Liquid glass cards",
             "Give the dashboard cards a frosted, translucent glass look over your wallpaper.",
@@ -493,7 +494,21 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
         ) {
             vm.toggleGlass(it)
         }
-        if (s.prefs.glassEnabled) {
+        ToggleRow(
+            "Liquid glass screens",
+            "Give the Log a spend and History drawers a frosted glass backdrop.",
+            s.prefs.glassScreens
+        ) {
+            vm.updatePrefs { p -> p.copy(glassScreens = it) }
+        }
+        ToggleRow(
+            "Glass the inside cards",
+            "Instead of the backdrop, make the Log a spend and History cards themselves liquid glass (on a flat light background).",
+            s.prefs.glassScreensInside
+        ) {
+            vm.updatePrefs { p -> p.copy(glassScreensInside = it) }
+        }
+        if (s.prefs.glassEnabled || s.prefs.glassScreens) {
             SliderRow(
                 label = "Gaussian blur",
                 valueText = "${s.prefs.glassBlur}dp",
@@ -888,6 +903,9 @@ private fun DrawerSheet(
     content: @Composable () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    // Solid panel — liquid glass was laggy when scrolling here, so the drawer stays opaque.
+    val panelModifier = Modifier.background(cs.surface, shape)
     Box(Modifier.fillMaxSize()) {
         // Dismiss scrim — tapping outside the panel closes the sheet.
         Box(
@@ -901,8 +919,6 @@ private fun DrawerSheet(
                 )
         )
         // Bottom panel — consumes its own taps (no-op) so the scrim can't dismiss it.
-        // Uses the theme surface so it stays readable in light/white themes instead of a
-        // hard-coded black that hides dark `onSurface` text.
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -911,7 +927,8 @@ private fun DrawerSheet(
                     if (contentHeight != null) Modifier.height(contentHeight)
                     else Modifier.heightIn(min = 460.dp)
                 )
-                .background(cs.surface, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .clip(shape)
+                .then(panelModifier)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

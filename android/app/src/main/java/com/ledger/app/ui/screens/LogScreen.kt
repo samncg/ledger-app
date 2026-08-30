@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -22,8 +21,6 @@ import com.ledger.app.ui.HistoryEntry
 import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.GlassScreenBackground
-import com.ledger.app.ui.components.GlassStyle
-import com.ledger.app.ui.components.LocalGlassStyle
 import com.ledger.app.ui.components.cards.HistoryCard
 import com.ledger.app.ui.components.cards.LogCard
 
@@ -31,16 +28,14 @@ import com.ledger.app.ui.components.cards.LogCard
 @Composable
 fun LogScreen(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
     GlassScreenBackground {
-        CompositionLocalProvider(LocalGlassStyle provides GlassStyle()) {
-            Column(Modifier.fillMaxSize().statusBarsPadding()) {
-                ScreenHeader("Log a spend")
-                Column(
-                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 8.dp, bottom = 88.dp),
-                ) {
-                    LogCard(vm, s)
-                }
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            ScreenHeader("Log a spend")
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp, bottom = 88.dp),
+            ) {
+                LogCard(vm, s)
             }
         }
     }
@@ -55,17 +50,15 @@ fun HistoryScreen(
     onEditEntry: (HistoryEntry) -> Unit,
 ) {
     GlassScreenBackground {
-        CompositionLocalProvider(LocalGlassStyle provides GlassStyle()) {
-            Column(Modifier.fillMaxSize().statusBarsPadding()) {
-                ScreenHeader("History")
-                Column(
-                    Modifier.fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 8.dp, bottom = 88.dp)
-                        .weight(1f),
-                ) {
-                    HistoryCard(vm, s, expand = true, onEditEntry = onEditEntry)
-                }
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            ScreenHeader("History")
+            Column(
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp, bottom = 88.dp)
+                    .weight(1f),
+            ) {
+                HistoryCard(vm, s, expand = true, onEditEntry = onEditEntry)
             }
         }
     }

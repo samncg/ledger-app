@@ -137,6 +137,8 @@ data class Prefs(
     val reminderMinute: Int = 0,
     val budgetAlertsEnabled: Boolean = true,
     val glassEnabled: Boolean = false,
+    val glassScreens: Boolean = false,
+    val glassScreensInside: Boolean = false,
     val glassBlur: Int = 8,
     val glassOpacity: Int = 76,
     val glassRefraction: Int = 24,

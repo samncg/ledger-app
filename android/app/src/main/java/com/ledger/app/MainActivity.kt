@@ -97,6 +97,8 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalGlassStyle provides GlassStyle(
                         enabled = state.prefs.glassEnabled,
+                        screensGlass = state.prefs.glassScreens,
+                        insideGlass = state.prefs.glassScreensInside,
                         blur = state.prefs.glassBlur,
                         opacity = state.prefs.glassOpacity,
                         refraction = state.prefs.glassRefraction,

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,7 +27,6 @@ import com.kashif_e.backdrop.Backdrop
 import com.kashif_e.backdrop.drawBackdrop
 import com.kashif_e.backdrop.drawPlainBackdrop
 import com.kashif_e.backdrop.effects.blur
-import com.kashif_e.backdrop.effects.colorControls
 import com.kashif_e.backdrop.effects.lens
 import com.kashif_e.backdrop.effects.vibrancy
 import com.kashif_e.backdrop.highlight.Highlight
@@ -41,6 +41,8 @@ import com.kashif_e.backdrop.shadow.Shadow
 
 data class GlassStyle(
     val enabled: Boolean = false,
+    val screensGlass: Boolean = false,
+    val insideGlass: Boolean = false,
     val blur: Int = 8,
     val opacity: Int = 76,
     val refraction: Int = 24,
@@ -106,14 +108,23 @@ fun GlassSurface(
     )
 }
 
-/** Full-screen frosted glass used for the History/Log-spend views (outside glass). */
+/** Full-screen wrapper for the History/Log-spend views.
+Two modes when "Liquid glass screens" is on:
+- backdrop (default): the screen gets a light frosted blur; inner cards stay solid.
+- inside: the screen is a flat light background and the inner cards become liquid glass.
+Uses the safe blur-only recipe on the full-screen backdrop (no refraction shader). */
 @Composable
 fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
     val cs = MaterialTheme.colorScheme
     val glass = LocalGlassStyle.current
     val backdrop = LocalGlassBackdrop.current
+    val insideGlass = glass.insideGlass
 
-    if (glass.enabled && backdrop != null) {
+    if (glass.screensGlass && backdrop != null && !insideGlass) {
+        // BACKDROP mode: light frosted blur over the wallpaper, cards stay solid.
+        val blurRadius = glass.blur.coerceIn(4, 24)
+        // Light, translucent tint — keeps the screen airy instead of dark.
+        val tintAlpha = 0.12f + (glass.opacity.coerceIn(20, 100) / 100f) * 0.22f
         Box(
             Modifier
                 .fillMaxSize()
@@ -121,22 +132,38 @@ fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = {
-                        blur((glass.blur.coerceIn(8, 24)).dp.toPx())
-                        colorControls(brightness = -0.04f, saturation = 1.05f)
+                        blur(blurRadius.dp.toPx())
                     },
                     onDrawSurface = {
-                        drawRect(cs.background.copy(alpha = 0.86f))
+                        drawRect(Color.White.copy(alpha = 0.10f))
+                        drawRect(cs.background.copy(alpha = tintAlpha))
                     }
                 ),
-            content = content
-        )
+        ) {
+            CompositionLocalProvider(LocalGlassStyle provides GlassStyle()) { content() }
+        }
     } else {
         Box(
             Modifier
                 .fillMaxSize()
-                .background(cs.background),
-            content = content
-        )
+                .background(cs.background)
+        ) {
+            if (glass.insideGlass && glass.screensGlass && backdrop != null) {
+                // INSIDE mode: flat bg + the inner cards become liquid glass.
+                CompositionLocalProvider(
+                    LocalGlassStyle provides GlassStyle(
+                        enabled = true,
+                        blur = glass.blur,
+                        opacity = glass.opacity,
+                        refraction = glass.refraction,
+                        refractionHeight = glass.refractionHeight,
+                        chromaticAberration = glass.chromaticAberration,
+                    )
+                ) { content() }
+            } else {
+                CompositionLocalProvider(LocalGlassStyle provides GlassStyle()) { content() }
+            }
+        }
     }
 }
 
