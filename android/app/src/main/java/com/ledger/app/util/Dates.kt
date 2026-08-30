@@ -18,6 +18,21 @@ fun daysInMonth(d: LocalDate = LocalDate.now()): Int = d.lengthOfMonth()
 
 fun firstOfMonthKey(d: LocalDate = LocalDate.now()): String = d.withDayOfMonth(1).format(ISO)
 
+/** First day of the month `offset` months before `base` (offset 0 = base's month). */
+fun monthStartKey(base: String, offset: Int): String =
+    parseDate(base).withDayOfMonth(1).minusMonths(offset.toLong()).format(ISO)
+
+/** Last day of the month `offset` months before `base`; offset 0 ends on `base` (today). */
+fun monthEndKey(base: String, offset: Int): String {
+    val m = parseDate(base).withDayOfMonth(1).minusMonths(offset.toLong())
+    return if (offset == 0) base else m.withDayOfMonth(m.lengthOfMonth()).format(ISO)
+}
+
+/** Human-friendly month label, e.g. "August 2026". */
+fun monthLabel(base: String, offset: Int): String =
+    parseDate(base).withDayOfMonth(1).minusMonths(offset.toLong())
+        .format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
+
 /** days between a and b (b - a), in days. */
 fun dayDiff(a: String, b: String): Long = ChronoUnit.DAYS.between(parseDate(a), parseDate(b))
 

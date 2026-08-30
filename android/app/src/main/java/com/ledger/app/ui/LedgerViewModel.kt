@@ -43,6 +43,7 @@ import com.ledger.app.util.daysInMonth
 import com.ledger.app.util.firstOfMonthKey
 import com.ledger.app.util.fmt
 import com.ledger.app.util.groupLabel
+import com.ledger.app.util.monthLabel
 import com.ledger.app.util.parseDate
 import com.ledger.app.util.relativeDate
 import com.ledger.app.util.todayKey
@@ -407,16 +408,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     }
 
     /* ─── Breakdown (range-driven) ─── */
-    fun breakdown(s: LedgerState, range: String, from: String, to: String): BreakdownData {
+    fun breakdown(s: LedgerState, range: String, from: String, to: String, end: String = s.today): BreakdownData {
         val start = when (range) {
-            "week" -> addDays(s.today, -6)
-            "month" -> firstOfMonthKey()
+            "week" -> addDays(end, -6)
+            "month" -> firstOfMonthKey(parseDate(end))
             "all" -> null
             "custom" -> from.ifEmpty { null }
-            else -> s.settings?.startDate ?: s.today
+            else -> s.settings?.startDate ?: end
         }
-        val end = if (range == "custom") to.ifEmpty { s.today } else s.today
-        val ovExp = s.expenses.filter { e -> (start == null || e.date >= start) && e.date <= end }
+        val effEnd = if (range == "custom") to.ifEmpty { end } else end
+        val ovExp = s.expenses.filter { e -> (start == null || e.date >= start) && e.date <= effEnd }
 
         val totals = linkedMapOf<String, Double>().apply { s.cats.forEach { put(it.id, 0.0) } }
         for (e in ovExp) for (c in expCats(e)) totals[c] = (totals[c] ?: 0.0) + e.amount
@@ -425,9 +426,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val biggest = ovExp.maxByOrNull { it.amount }
         val totalSpent = ovExp.sumOf { it.amount }
         val rangeDays = when {
-            start != null -> max(1L, dayDiff(start, end) + 1)
+            start != null -> max(1L, dayDiff(start, effEnd) + 1)
             ovExp.isEmpty() -> 1L
-            else -> max(1L, dayDiff(ovExp.minOf { it.date }, end) + 1)
+            else -> max(1L, dayDiff(ovExp.minOf { it.date }, effEnd) + 1)
         }
         val rangeBudget = s.dailyBudget * rangeDays
         val budgetPct = if (rangeBudget > 0) totalSpent / rangeBudget * 100 else 0.0
@@ -435,7 +436,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val topCategory = s.cats.filter { (totals[it.id] ?: 0.0) > 0 }.maxByOrNull { totals[it.id] ?: 0.0 }
         val rangeLabel = when (range) {
             "period" -> "this budget period"; "week" -> "the last 7 days"
-            "month" -> "this calendar month"; "all" -> "all logged history"
+            "month" -> monthLabel(end, 0); "all" -> "all logged history"
             else -> "the selected range"
         }
         val pool = totals.values.sum()
@@ -457,10 +458,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     }
 
     /* ─── Trend chart data ─── */
-    fun trend(s: LedgerState, range: Int, series: List<String>): TrendData {
+    fun trend(s: LedgerState, range: Int, series: List<String>, end: String = s.today): TrendData {
         val map = linkedMapOf<String, TrendDay>()
         for (i in range - 1 downTo 0) {
-            val date = addDays(s.today, -i)
+            val date = addDays(end, -i)
             map[date] = TrendDay(date, 0.0, mutableMapOf())
         }
         for (e in s.expenses) {
@@ -484,8 +485,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             }
 
         /* GitHub-style spending heatmap data (weeks as columns, Mon–Sun rows) */
-        val end = parseDate(s.today)
-        val start = end.minusDays((range - 1).toLong())
+        val endDate = parseDate(end)
+        val start = endDate.minusDays((range - 1).toLong())
         val first =
             start.minusDays((((start.dayOfWeek.value % 7) + 6) % 7).toLong()) // Monday on/before the range start
         val spentByDay = s.expenses.groupBy({ it.date }, { it.amount }).mapValues { (_, v) -> v.sum() }
@@ -493,7 +494,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         var total = 0.0;
         var mx = 0.0
         var d = first
-        while (!d.isAfter(end)) {
+        while (!d.isAfter(endDate)) {
             val date = todayKey(d)
             val spent = spentByDay[date] ?: 0.0
             total += spent

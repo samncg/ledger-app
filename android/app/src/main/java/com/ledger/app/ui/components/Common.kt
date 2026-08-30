@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -41,6 +43,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -74,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import com.ledger.app.ui.parseColor
 import com.ledger.app.util.dateKeyFromMillis
 import com.ledger.app.util.millisFromDateKey
+import com.ledger.app.util.monthLabel
 
 /* ═══════════════════════════════════════════
    SHARED COMPONENTS
@@ -84,6 +88,52 @@ import com.ledger.app.util.millisFromDateKey
 fun rememberHapticTick(): () -> Unit {
     val haptics = LocalHapticFeedback.current
     return remember(haptics) { { haptics.performHapticFeedback(HapticFeedbackType.LongPress) } }
+}
+
+/* ─── Month selector (previous/next month browsing, e.g. trend & breakdown) ─── */
+
+@Composable
+fun MonthSelector(
+    base: String,
+    monthOffset: Int,
+    onOffset: (Int) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val tick = rememberHapticTick()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        IconButton(
+            onClick = { tick(); onOffset(monthOffset + 1) },
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                "Previous month",
+                Modifier.size(18.dp),
+                tint = cs.onSurfaceVariant
+            )
+        }
+        Text(
+            monthLabel(base, monthOffset),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = cs.onSurface,
+            maxLines = 1,
+        )
+        IconButton(
+            onClick = {
+                if (monthOffset > 0) {
+                    tick(); onOffset(monthOffset - 1)
+                }
+            },
+            enabled = monthOffset > 0,
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next month", Modifier.size(18.dp),
+                tint = if (monthOffset > 0) cs.onSurfaceVariant else cs.outlineVariant,
+            )
+        }
+    }
 }
 
 /* ─── Buttons ─── */

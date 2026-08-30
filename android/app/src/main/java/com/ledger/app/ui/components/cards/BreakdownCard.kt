@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,9 +38,12 @@ import com.ledger.app.ui.components.Btn
 import com.ledger.app.ui.components.CardContainer
 import com.ledger.app.ui.components.DateField
 import com.ledger.app.ui.components.FieldLabel
+import com.ledger.app.ui.components.MonthSelector
 import com.ledger.app.ui.components.RangeTabs
 import com.ledger.app.ui.components.StatDivider
 import com.ledger.app.ui.parseColor
+import com.ledger.app.util.monthEndKey
+import com.ledger.app.util.monthLabel
 
 /* Category breakdown — range tabs, donut, per-category bars + budgets */
 @Composable
@@ -51,8 +55,13 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
     var to by remember { mutableStateOf("") }
     var editingBudgets by remember { mutableStateOf(false) }
     var drafts by remember { mutableStateOf(s.catBudgets.mapValues { (_, v) -> v.toString() }) }
+    var monthOffset by remember { mutableIntStateOf(0) }
 
-    val data: BreakdownData = remember(s, range, from, to) { vm.breakdown(s, range, from, to) }
+    // Browsing a previous month shows that whole month; the current month keeps the range tabs.
+    val browsingPast = monthOffset > 0
+    val end = monthEndKey(s.today, monthOffset)
+    val effRange = if (browsingPast) "month" else range
+    val data: BreakdownData = remember(s, effRange, from, to, end) { vm.breakdown(s, effRange, from, to, end) }
     val positive = parseColor(s.theme.positive) ?: cs.primary
     val warning = parseColor(s.theme.warning) ?: cs.primary
     val negative = parseColor(s.theme.negative) ?: cs.primary
@@ -80,9 +89,30 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
             }
         },
     ) {
-        RangeTabs(ranges, range) { range = it }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MonthSelector(base = s.today, monthOffset = monthOffset) { monthOffset = it }
+            if (browsingPast) {
+                Text("This month", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
 
-        if (range == "custom") {
+        if (browsingPast) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Showing ${monthLabel(s.today, monthOffset)}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Spacer(Modifier.height(10.dp))
+            RangeTabs(ranges, range) { range = it }
+        }
+
+        if (!browsingPast && range == "custom") {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {

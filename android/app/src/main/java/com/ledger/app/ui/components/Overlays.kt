@@ -887,6 +887,7 @@ private fun DrawerSheet(
     contentHeight: androidx.compose.ui.unit.Dp? = null,
     content: @Composable () -> Unit
 ) {
+    val cs = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize()) {
         // Dismiss scrim — tapping outside the panel closes the sheet.
         Box(
@@ -900,6 +901,8 @@ private fun DrawerSheet(
                 )
         )
         // Bottom panel — consumes its own taps (no-op) so the scrim can't dismiss it.
+        // Uses the theme surface so it stays readable in light/white themes instead of a
+        // hard-coded black that hides dark `onSurface` text.
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -908,7 +911,7 @@ private fun DrawerSheet(
                     if (contentHeight != null) Modifier.height(contentHeight)
                     else Modifier.heightIn(min = 460.dp)
                 )
-                .background(Color(0xFF0A0A0A), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(cs.surface, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

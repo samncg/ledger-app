@@ -36,6 +36,11 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 
 ## v0.1.x — one-off session log (reverse-chronological)
 
+- Fix (Android): "Daily spend · this period" strip now supports sliding a finger across the bars (scrub) — each bar under the finger is selected with a haptic tick, showing that day's date + spending; single taps still work.
+- Fix (Android): "Daily spend · this period" strip replaced horizontal scrolling with tap-to-inspect — tapping a bar selects it and shows that day's date + spending (and the detail line clears on re-tap).
+- Feature (Android): month selector added to the Spending trend and Category breakdown cards so you can browse previous months; added `monthStartKey`/`monthEndKey`/`monthLabel` date helpers and made `trend()`/`breakdown()` accept an end-date reference.
+- Build: version bumped to 0.1.3 (versionCode 3); disabled the crashing `NullSafeMutableLiveData` lint detector so `assembleRelease` passes, and signed the release APK with the debug keystore for installable sideload/test builds.
+- Fix (Android): settings/budget/money drawer sheets now use the theme `surface` color (adaptive to light/white themes) instead of a hardcoded black container, so text stays readable in light mode.
 - Revert (Android): video wallpaper support removed — wallpaper picker returns to image-only (`image/*`), the ExoPlayer/media3 video background and `LoopedVideoBackground`/`isVideoWallpaper` helpers are deleted, and the picker labels/`setWallpaperFromUri` accept photos only.
 - Feature (Android): haptic feedback added to the settings sliders (tick per step crossing) and to the bottom pill's circular close button.
 - Fix (Android): bottom pill moved back into the main window (no more Popup) and the Settings/Budget/Money drawer sheets converted from `ModalBottomSheet` dialogs to in-window animated sheets so the pill z-orders above every overlay; pill is bottom-center-aligned, uses blur-only glass (no per-frame refraction) to stop the morph-to-close lag, and samples the wallpaper backdrop at the correct coordinates.

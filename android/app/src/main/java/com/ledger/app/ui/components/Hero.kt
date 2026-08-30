@@ -2,6 +2,8 @@ package com.ledger.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,10 +25,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.ledger.app.data.DayCell
 import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.parseColor
+import com.ledger.app.util.relativeDate
 
 /* Hero — daily allowance, balance, stats, budget progress and the daily strip */
 @Composable
@@ -203,13 +213,43 @@ fun Hero(
                 Text("Day ${s.elapsedDays} / ${s.settings?.periodDays}", fontSize = 11.sp, color = cs.onSurfaceVariant)
             }
             Spacer(Modifier.height(8.dp))
+            // Slide-your-finger daily strip — move across the bars to inspect each day's date + spending.
+            var selIdx by remember { mutableStateOf(-1) }
+            var stripWidthPx by remember { mutableStateOf(0) }
+            val barTick = rememberHapticTick()
+            val density = LocalDensity.current
+            val barSpacingPx = with(density) { 3.dp.toPx() }
+            val days = s.dayCells.size
             Row(
                 Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(10.dp)).background(cs.surfaceVariant)
-                    .padding(8.dp),
+                    .padding(8.dp)
+                    .onSizeChanged { stripWidthPx = it.width }
+                    .pointerInput(days, stripWidthPx, barSpacingPx) {
+                        if (days == 0 || stripWidthPx <= 0) return@pointerInput
+                        val innerW = stripWidthPx
+                        val stride = (innerW - barSpacingPx * (days - 1)) / days + barSpacingPx
+                        fun indexAt(x: Float): Int = ((x / stride).toInt()).coerceIn(0, days - 1)
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            selIdx = indexAt(down.position.x)
+                            barTick()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                val idx = indexAt(change.position.x)
+                                if (idx != selIdx) {
+                                    selIdx = idx
+                                    barTick()
+                                }
+                                change.consume()
+                            }
+                        }
+                    },
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                s.dayCells.forEach { c ->
+                s.dayCells.forEachIndexed { idx, c ->
                     val pct: Double =
                         if (c.isFuture) 8.0 else (c.spent / ((s.dailyBudget.coerceAtLeast(0.0001)) * 1.6) * 100).coerceIn(
                             8.0,
@@ -221,17 +261,37 @@ fun Hero(
                         else -> negative
                     }
                     val alpha = if (c.isFuture) 0.35f else 1f
+                    val selected = idx == selIdx
                     Box(
                         Modifier
                             .weight(1f)
                             .height(((pct / 100) * 48).dp)
                             .clip(RoundedCornerShape(3.dp))
                             .background(color.copy(alpha = alpha))
-                            .let { m -> if (c.isToday) m.border(1.5.dp, accent, RoundedCornerShape(3.dp)) else m },
+                            .let { m ->
+                                if (c.isToday || selected) m.border(
+                                    1.5.dp,
+                                    accent,
+                                    RoundedCornerShape(3.dp)
+                                ) else m
+                            },
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
+            val sel = if (selIdx in s.dayCells.indices) s.dayCells[selIdx] else null
+            Text(
+                if (sel == null) "Slide across the bars to see each day's spending."
+                else "${
+                    relativeDate(
+                        sel.date,
+                        s.today
+                    )
+                } · " + if (sel.isFuture) "no spending yet" else "spent ${myr(sel.spent)}",
+                fontSize = 11.sp,
+                color = cs.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 LegendDot(positive, "Under")
                 LegendDot(warning, "Near")
