@@ -1,5 +1,6 @@
 import { I } from '../lib/icons';
 import { CURRENCIES } from '../lib/constants';
+import { daysInMonth } from '../lib/helpers';
 
 /* ─── Setup ─── */
 export default function SetupCard({
@@ -41,7 +42,7 @@ export default function SetupCard({
           )}
           <div>
             <div className="field-label">Period length (days)</div>
-            <input className="input mono" type="number" inputMode="numeric" placeholder="30" value={draftDays} onChange={e=>setDraftDays(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveSetup()}/>
+            <input className="input mono" type="number" inputMode="numeric" placeholder={String(daysInMonth())} value={draftDays} onChange={e=>setDraftDays(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveSetup()}/>
           </div>
           <div>
             <div className="field-label">Start date</div>

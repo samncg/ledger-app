@@ -139,7 +139,7 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
                     value = days,
                     onChange = { days = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "30",
+                    placeholder = daysInMonth().toString(),
                     mono = true,
                     numeric = true
                 )

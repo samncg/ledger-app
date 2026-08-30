@@ -98,7 +98,7 @@ private fun scheme(theme: AppTheme): androidx.compose.material3.ColorScheme {
         surface = color(theme.surface),
         onSurface = color(theme.text),
         surfaceVariant = color(theme.surface2),
-        onSurfaceVariant = color(theme.textDim),
+        onSurfaceVariant = color(theme.text),
         surfaceContainer = color(theme.surface2),
         surfaceContainerHigh = color(theme.surface2),
         surfaceContainerHighest = color(theme.surface2),

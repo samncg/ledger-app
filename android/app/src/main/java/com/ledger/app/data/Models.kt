@@ -141,7 +141,7 @@ data class Prefs(
     val glassOpacity: Int = 76,
     val glassRefraction: Int = 24,
     val glassRefractionHeight: Int = 12,
-    val glassChromaticAberration: Boolean = false,
+    val glassChromaticAmount: Int = 0,
 )
 
 @Serializable

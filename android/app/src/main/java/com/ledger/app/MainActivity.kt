@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
                         opacity = state.prefs.glassOpacity,
                         refraction = state.prefs.glassRefraction,
                         refractionHeight = state.prefs.glassRefractionHeight,
-                        chromaticAberration = state.prefs.glassChromaticAberration
+                        chromaticAberration = state.prefs.glassChromaticAmount / 100f
                     ),
                     LocalGlassBackdrop provides glassBackdrop
                 ) {
@@ -186,6 +186,9 @@ fun WallpaperBackdrop(
                     .fillMaxSize()
                     .then(if (wallBlur > 0) Modifier.blur(wallBlur.dp) else Modifier)
             )
+        }
+
+        if (bitmap != null) {
             Box(
                 Modifier
                     .fillMaxSize()

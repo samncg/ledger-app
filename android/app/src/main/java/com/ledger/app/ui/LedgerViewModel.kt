@@ -39,6 +39,7 @@ import com.ledger.app.util.NotificationHelper
 import com.ledger.app.util.advanceDate
 import com.ledger.app.util.addDays
 import com.ledger.app.util.dayDiff
+import com.ledger.app.util.daysInMonth
 import com.ledger.app.util.firstOfMonthKey
 import com.ledger.app.util.fmt
 import com.ledger.app.util.groupLabel
@@ -265,12 +266,23 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         )
         val materialized = runRecurring(s)
         if (materialized != null) s = materialized
+        s = syncMonthlyPeriod(s)
         _state.value = computeDerived(s)
         if (materialized != null) persistSliceChanges(materialized)
 
         if (s.prefs.notificationsEnabled) {
             NotificationHelper.scheduleDailyReminder(repo.appContext, s.prefs.reminderHour, s.prefs.reminderMinute)
         }
+    }
+
+    /** Keep the budget period equal to the real length of the current month. */
+    private suspend fun syncMonthlyPeriod(s: LedgerState): LedgerState {
+        val settings = s.settings ?: return s
+        val real = daysInMonth()
+        if (settings.periodDays == real) return s
+        val next = settings.copy(periodDays = real)
+        repo.saveSettings(next)
+        return s.copy(settings = next)
     }
 
     private fun update(f: (LedgerState) -> LedgerState) {
@@ -288,6 +300,15 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     /** Recompute all derived values (call on resume so the date rolls over). */
     fun refresh() {
         update { it }
+        val cur = _state.value
+        cur.settings?.let { settings ->
+            val real = daysInMonth()
+            if (settings.periodDays != real) {
+                val next = settings.copy(periodDays = real)
+                update { it.copy(settings = next) }
+                viewModelScope.launch { repo.saveSettings(next) }
+            }
+        }
     }
 
     /* ─── Derived data (ported 1:1 from the web app) ─── */
@@ -1145,8 +1166,14 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     fun setWallpaperFromUri(context: android.content.Context, uri: android.net.Uri) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                val mime = context.contentResolver.getType(uri)
+                if (mime?.startsWith("image/") != true) {
+                    showToast("Please choose an image file.", "error")
+                    return@launch
+                }
                 val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch
-                val file = java.io.File(context.filesDir, "wallpaper_${System.currentTimeMillis()}.jpg")
+                val ext = "jpg"
+                val file = java.io.File(context.filesDir, "wallpaper_${System.currentTimeMillis()}.$ext")
                 context.filesDir.listFiles { _, name -> name.startsWith("wallpaper_") }?.forEach { it.delete() }
 
                 file.outputStream().use { out ->
@@ -1231,8 +1258,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         updatePrefs { it.copy(glassRefractionHeight = height.coerceIn(0, 40)) }
     }
 
-    fun toggleGlassChromaticAberration(enabled: Boolean) {
-        updatePrefs { it.copy(glassChromaticAberration = enabled) }
+    fun updateGlassChromaticAberration(amount: Int) {
+        updatePrefs { it.copy(glassChromaticAmount = amount.coerceIn(0, 100)) }
     }
 
     /* ─── Clear all ─── */

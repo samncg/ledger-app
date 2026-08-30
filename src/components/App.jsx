@@ -138,6 +138,14 @@ export default function App(){
 
   const persistExpenses=useCallback(n=>{setExpenses(n);store.set("ledger-expenses",n)},[]);
   const persistSettings=useCallback(n=>{setSettings(n);store.set("ledger-settings",n)},[]);
+
+  /* Auto-sync the budget period to the real length of the current month. */
+  useEffect(()=>{
+    if(!settings)return;
+    const realDays=daysInMonth(new Date(today+"T00:00:00"));
+    if(settings.periodDays!==realDays){persistSettings({...settings,periodDays:realDays})}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[today]);
   const persistTheme=useCallback(n=>{setTheme(n);store.set("ledger-theme",n)},[]);
   const[savedTheme,setSavedTheme]=useState(()=>store.get("ledger-theme-saved")||null);
   const persistSavedTheme=useCallback(n=>{setSavedTheme(n);store.set("ledger-theme-saved",n)},[]);

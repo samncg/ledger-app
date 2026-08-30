@@ -265,6 +265,8 @@ fun SliderRow(
     steps: Int = 0,
     onValueChange: (Float) -> Unit
 ) {
+    val tick = rememberHapticTick()
+    var lastValue by remember { mutableStateOf(value) }
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontSize = 13.sp)
@@ -275,7 +277,17 @@ fun SliderRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Slider(value = value, onValueChange = onValueChange, valueRange = range, steps = steps)
+        Slider(
+            value = value,
+            onValueChange = {
+                // Tick once per discrete step crossing (not on every micro-movement).
+                if (kotlin.math.abs(it - lastValue) >= 0.5f) tick()
+                lastValue = it
+                onValueChange(it)
+            },
+            valueRange = range,
+            steps = steps,
+        )
     }
 }
 

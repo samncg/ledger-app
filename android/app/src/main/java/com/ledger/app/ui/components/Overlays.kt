@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,10 +42,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -408,21 +408,21 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
         }
 
         if (!s.prefs.wallpaper.isNullOrEmpty()) {
-            val bitmap = remember(s.prefs.wallpaper) {
-                try {
-                    BitmapFactory.decodeFile(s.prefs.wallpaper)?.asImageBitmap()
-                } catch (e: Exception) {
-                    null
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(110.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            ) {
+                val bitmap = remember(s.prefs.wallpaper) {
+                    try {
+                        BitmapFactory.decodeFile(s.prefs.wallpaper)?.asImageBitmap()
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
-            }
-            if (bitmap != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(110.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                ) {
+                if (bitmap != null) {
                     Image(
                         bitmap = bitmap,
                         contentDescription = "Wallpaper preview",
@@ -431,14 +431,14 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                             .fillMaxSize()
                             .then(if (s.prefs.wallBlur > 0) Modifier.blur(s.prefs.wallBlur.dp) else Modifier)
                     )
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(
-                                (parseColor(s.theme.bg) ?: Color.Black).copy(alpha = s.prefs.wallpaperDim / 100f)
-                            )
-                    )
                 }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            (parseColor(s.theme.bg) ?: Color.Black).copy(alpha = s.prefs.wallpaperDim / 100f)
+                        )
+                )
             }
 
             SliderRow(
@@ -526,14 +526,15 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                 steps = 19,
                 onValueChange = { vm.updateGlassRefraction(it.toInt()) }
             )
-            ToggleRow(
-                "Chromatic aberration",
-                "Adds a subtle prismatic RGB edge to the refraction.",
-                s.prefs.glassChromaticAberration
-            ) {
-                vm.toggleGlassChromaticAberration(it)
-            }
-            SectionDesc("Applied to both the bottom navigation pill and the dashboard cards. Lower transparency = more frosted.")
+            SliderRow(
+                label = "Chromatic aberration amount",
+                valueText = "${s.prefs.glassChromaticAmount}%",
+                value = s.prefs.glassChromaticAmount.toFloat(),
+                range = 0f..100f,
+                steps = 19,
+                onValueChange = { vm.updateGlassChromaticAberration(it.toInt()) }
+            )
+            SectionDesc("Chrom. aberration creates a prismatic RGB edge on the refraction; 0% = off. Applied to the bottom navigation pill and the dashboard cards. Lower transparency = more frosted.")
         }
 
         SectionTitle("Card layout")
@@ -880,28 +881,50 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
 
 /* ─── Drawer scaffolding ─── */
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DrawerSheet(
     onClose: () -> Unit,
     contentHeight: androidx.compose.ui.unit.Dp? = null,
     content: @Composable () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState) {
-        Column(
+    Box(Modifier.fillMaxSize()) {
+        // Dismiss scrim — tapping outside the panel closes the sheet.
+        Box(
             Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClose,
+                )
+        )
+        // Bottom panel — consumes its own taps (no-op) so the scrim can't dismiss it.
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .then(
                     if (contentHeight != null) Modifier.height(contentHeight)
                     else Modifier.heightIn(min = 460.dp)
                 )
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp)
-                .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .background(Color(0xFF0A0A0A), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) {},
         ) {
-            content()
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp)
+                    .padding(top = 14.dp, bottom = 88.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                content()
+            }
         }
     }
 }
@@ -918,9 +941,6 @@ private fun DrawerHeader(
             Spacer(Modifier.width(6.dp))
         }
         Text(title, Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        IconButton(onClick = onClose) {
-            Icon(Icons.Outlined.Close, "Close", Modifier.size(18.dp))
-        }
     }
 }
 

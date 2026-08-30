@@ -9,6 +9,28 @@
 
 ## v0.1.x — one-off session log (reverse-chronological)
 
+- Revert (Android): video wallpaper support removed — wallpaper picker returns to image-only (`image/*`), the ExoPlayer/media3 video background and `LoopedVideoBackground`/`isVideoWallpaper` helpers are deleted, and the picker labels/`setWallpaperFromUri` accept photos only.
+- Feature (Android): haptic feedback added to the settings sliders (tick per step crossing) and to the bottom pill's circular close button.
+- Fix (Android): bottom pill moved back into the main window (no more Popup) and the Settings/Budget/Money drawer sheets converted from `ModalBottomSheet` dialogs to in-window animated sheets so the pill z-orders above every overlay; pill is bottom-center-aligned, uses blur-only glass (no per-frame refraction) to stop the morph-to-close lag, and samples the wallpaper backdrop at the correct coordinates.
+- UI (Android): pill springs (bounce) into a circular liquid-glass close button whenever History / Log spend / Settings (or Budget / Money) is open; removed the redundant top-right close buttons on screens and drawer headers.
+- UI (Android): drawer sheets (ModalBottomSheet) now use a black container to match the full-screen views.
+
+- Feature (Android): video wallpapers — upload a short video loop as the dashboard background (cover-scaled, muted, looping via ExoPlayer?media3), with dim/blur controls; wallpaper picker accepts image/video ("*/*").
+
+- Feature (Android): "Chromatic aberration amount" slider (0–100%) added in Settings → Theme, replacing the old on/off toggle; higher values intensify the prismatic fringing (and bring it off at 0%).
+
+- Fix (Android): History/Log-spend no longer crash on open — full-screen glass background switched to the safe pure-blur recipe (`drawPlainBackdrop` + blur + `colorControls`), dropping the per-frame `vibrancy`/`lens` passes that the skill warns cause jank/crashes over scrolling content.
+
+- UI (Android): History/Log-spend full-screen views now render a frosted glass backdrop while the inner cards are solid (inverted from before).
+- UI (Android): small/muted text no longer renders gray — `onSurfaceVariant` maps to the bright primary text color.
+- Fix (Android): chromatic aberration now actually applies when toggled — `lens(...)` was passing `depthEffect`; it now sets `chromaticAberration = true` alongside `depthEffect`.
+
+- Change (web + Android): budget period (`periodDays`) now auto-syncs to the real number of days in the current month on load/resume/render — previously it was only the setup-time default and stayed fixed.
+
+- Fix (Android): system back gesture (side swipe) now closes the open History / Log-spend full-screen view instead of exiting the app — added `BackHandler` for each and enabled predictive back (`android:enableOnBackInvokedCallback`).
+
+- Change (web + Android): setup "Period length (days)" now defaults to the real number of days in the current month via `daysInMonth()` (hardcoded `placeholder="30"` replaced with a dynamic value).
+
 - Deploy: web build (`base: /ledger/`) published to `samncg.github.io/ledger` via the `ledger/` folder of `samncg/samncg.github.io`.
 - Asset: app icon replaced with `ledger.png`, wrapped in a 21dp-inset adaptive-icon foreground so it isn't zoomed.
 - UI (Android): hero headline enlarged to 34sp; "On track" health badge and streak badge removed.
