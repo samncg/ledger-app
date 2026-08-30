@@ -7,6 +7,33 @@
 > do **not** rewrite history here, and keep each entry to a single compressed line. If you make a series
 > of changes in one session, group them under one `Added/Changed/Fixed` entry.
 
+## v0.1.3
+
+A private, local-first budgeting app that tracks your daily allowance and banks whatever you don't spend.
+
+### ✨ What's New
+- **Liquid-glass close button** — the bottom navigation pill now springs (with a bounce) into a circular glass close button whenever History, Log spend, Settings, Budget, or Money is open. It floats above every drawer, and the redundant top-right close buttons were removed.
+- **Haptic feedback** — settings sliders deliver a tactile tick as you cross each step, and the pill's close button pulses when tapped.
+
+### 🔧 Improvements
+- The pill is now bottom-center and samples the wallpaper directly beneath it, so the glass no longer refracts a misaligned region or gets blocked by a rectangle.
+- Closing a view is snappier — the pill runs a lighter blur-only glass pass during its morph, so it stays smooth.
+- Drawer sheets (Settings / Budget / Money) now use a dark, cohesive container that matches the full-screen History and Log spend views.
+- History and Log spend open with a frosted-glass backdrop while the inner cards stay solid.
+- Budget period now auto-syncs to the real number of days in the current month (web + Android).
+- Small and muted text no longer renders gray.
+
+### 🐛 Fixes
+- History and Log spend no longer crash when opened.
+- Chromatic aberration now actually applies and has a 0–100% intensity slider in Settings → Theme.
+- The system back gesture (edge swipe) now closes the open drawer/view instead of exiting the app.
+
+---
+
+> **Version:** 0.1.3 · **Platform:** Android (APK) · **Requires:** Android 8.0+ (API 26); full liquid-glass effects on Android 13+ (API 33)
+
+---
+
 ## v0.1.x — one-off session log (reverse-chronological)
 
 - Revert (Android): video wallpaper support removed — wallpaper picker returns to image-only (`image/*`), the ExoPlayer/media3 video background and `LoopedVideoBackground`/`isVideoWallpaper` helpers are deleted, and the picker labels/`setWallpaperFromUri` accept photos only.
