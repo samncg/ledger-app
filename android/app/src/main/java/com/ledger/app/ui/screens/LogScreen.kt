@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -31,7 +33,11 @@ fun LogScreen(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             ScreenHeader("Log a spend")
             Column(
-                Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .imePadding()
                     .padding(horizontal = 16.dp)
                     .padding(top = 8.dp, bottom = 88.dp),
             ) {

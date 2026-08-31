@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -67,8 +68,14 @@ fun LiquidGlassNavBar(
     val cs = MaterialTheme.colorScheme
     val glass = LocalGlassStyle.current
     val backdrop = LocalGlassBackdrop.current
-    var selected by remember { mutableIntStateOf(SEG_LOG) }
+    var selected by remember { mutableIntStateOf(-1) }
     val tick = rememberHapticTick()
+
+    LaunchedEffect(isOverlayOpen) {
+        if (!isOverlayOpen) {
+            selected = -1
+        }
+    }
 
     val pillShape = RoundedCornerShape(100.dp)
     val accent = cs.primary
@@ -82,7 +89,7 @@ fun LiquidGlassNavBar(
         label = "pill-width",
     )
     val thumbOffset by animateDpAsState(
-        targetValue = segmentWidth * selected,
+        targetValue = if (selected in 0..2) segmentWidth * selected else segmentWidth,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 800f),
         label = "pill-thumb",
     )
@@ -130,26 +137,28 @@ fun LiquidGlassNavBar(
                 }
             } else {
                 // Glass highlighter thumb (blur-only liquid glass, accent tint)
-                Box(
-                    Modifier
-                        .offset(x = thumbOffset)
-                        .width(segmentWidth)
-                        .height(pillHeight)
-                        .padding(3.dp)
-                        .let { tb ->
-                            if (backdrop != null) {
-                                tb.drawBackdrop(
-                                    backdrop = backdrop,
-                                    shape = { RoundedCornerShape(100.dp) },
-                                    effects = { blur(blurDp.dp.toPx()) },
-                                    onDrawSurface = { drawRect(accent.copy(alpha = 0.20f)) }
-                                )
-                            } else {
-                                tb.clip(RoundedCornerShape(100.dp)).background(accent.copy(alpha = 0.2f))
+                if (selected in 0..2) {
+                    Box(
+                        Modifier
+                            .offset(x = thumbOffset)
+                            .width(segmentWidth)
+                            .height(pillHeight)
+                            .padding(3.dp)
+                            .let { tb ->
+                                if (backdrop != null) {
+                                    tb.drawBackdrop(
+                                        backdrop = backdrop,
+                                        shape = { RoundedCornerShape(100.dp) },
+                                        effects = { blur(blurDp.dp.toPx()) },
+                                        onDrawSurface = { drawRect(accent.copy(alpha = 0.20f)) }
+                                    )
+                                } else {
+                                    tb.clip(RoundedCornerShape(100.dp)).background(accent.copy(alpha = 0.2f))
+                                }
                             }
-                        }
-                        .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(100.dp)),
-                )
+                            .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(100.dp)),
+                    )
+                }
 
                 Row(
                     Modifier.fillMaxSize(),

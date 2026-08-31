@@ -36,6 +36,11 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 
 ## v0.1.x — one-off session log (reverse-chronological)
 
+- Change (Android): spending trend now defaults to 30d instead of 14d.
+- Feature (Android): color picker dialog now includes Hue / Saturation / Brightness sliders + live preview, so any color can be chosen beyond the swatches and hex field.
+- Fix (Android): heatmap weekday labels no longer clip at the bottom in 1y/scrollable mode (tight line height + single-line).
+- Feature (Android): intro/setup screen auto-closes after Google sign-in when the cloud already has a save (forces a load when local settings are empty).
+- Fix (Android): UI/UX polish & fixes — "Run now" automation button made clickable, toast swipe-to-dismiss added and Undo action isolated from card surface, setup screen gained error notifications + Google sign-in restore, heatmap layout overlap fixed and 1y mode made horizontally scrollable, breakdown card "Top" stat removed to decramp 3-stat row and budget LinkText buttons fixed, AppTextField text clipping removed, Piggy bank saved/goal layout polished, floating navbar selection highlight reset on dashboard, and keyboard/navigation insets applied across all forms.
 - Feature (Android): "Glass the inside cards" toggle added under Liquid glass — lets the Log a spend / History cards themselves be liquid glass on a flat light background instead of frosting the whole backdrop; the backdrop frosted mode was also lightened (white lift + lower tint) so the screens aren't so dark.
 - Fix (Android): History/Log a spend full-screen glass reverted to safe blur + tint that follows the glass blur/transparency settings (the full refraction shader crashed on full-screen); removed the laggy liquid-glass panel from the Settings/Budget/Money drawers (kept solid).
 - Fix (Android): Log a spend / History full-screen backdrops and the drawer panels now render as real shader-based liquid glass (blur + refraction + chromatic, like the cards) with a translucent tint, so they look glassy rather than a near-opaque blur.

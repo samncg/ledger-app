@@ -1504,7 +1504,21 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                                 else -> 0L
                             }
 
-                            if (remoteAt > last) {
+                            // If the user is on the intro screen (no local settings yet) and the
+                            // cloud doc has a real save, load it immediately so the intro auto-closes.
+                            val cloudHasSettings = data["settings"] != null
+                            val localSettingsNull = _state.value.settings == null
+                            if (cloudHasSettings && localSettingsNull) {
+                                skipNextPush = true
+                                applyRemote(data)
+                                repo.setLastSync(uid, remoteAt)
+                                _state.value = _state.value.copy(
+                                    lastSyncedAt = remoteAt,
+                                    syncError = false,
+                                    syncErrorMsg = ""
+                                )
+                                showToast("Synced from cloud.", "success")
+                            } else if (remoteAt > last) {
                                 if (cloudLooksDefault && localHasData) {
                                     pushSync(uid)
                                 } else {
@@ -1814,6 +1828,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     }
 
     fun dismissToast() {
+        toast = null
+    }
+
+    fun runToastAction() {
         toast?.action?.run()
         toast = null
     }

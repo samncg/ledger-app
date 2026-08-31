@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ledger.app.ui.LedgerState
@@ -274,12 +275,12 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
-                    .size(width = 110.dp, height = 85.dp)
+                    .size(width = 96.dp, height = 80.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(cs.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(activePiggy.texture ?: "🐷", fontSize = 46.sp)
+                Text(activePiggy.texture ?: "🐷", fontSize = 42.sp)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
@@ -298,32 +299,57 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                         Btn("", onClick = { editingGoal = false }, variant = "ghost", small = true, icon = Icons.Outlined.Close)
                     }
                 } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(if (target > 0) "Saved" else "No goal yet", fontSize = 12.sp, color = cs.onSurfaceVariant)
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(fmt(saved, s.cur), fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Column {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Saved",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = cs.onSurfaceVariant
+                            )
                             if (target > 0) {
-                                Text(" / ${fmt(target, s.cur)}", fontSize = 11.5.sp, color = cs.onSurfaceVariant)
+                                Text(
+                                    "Goal: ${fmt(target, s.cur)}",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = cs.onSurfaceVariant
+                                )
                             }
                         }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            fmt(saved, s.cur),
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = cs.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(cs.surfaceVariant)) {
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(cs.surfaceVariant)) {
                     Box(
                         Modifier
                             .fillMaxWidth((pct / 100).toFloat().coerceIn(0f, 1f))
-                            .height(8.dp)
+                            .height(7.dp)
                             .background(cs.primary, CircleShape),
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(5.dp))
                 Text(
                     if (target > 0) {
                         if (saved >= target) "Goal complete! 🎉" else "${fmt(target - saved, s.cur)} to go"
-                    } else "Set a goal and watch it fill up.",
+                    } else "Set a goal to track progress",
                     fontSize = 11.sp,
                     color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(10.dp))
                 if (addOpen) {

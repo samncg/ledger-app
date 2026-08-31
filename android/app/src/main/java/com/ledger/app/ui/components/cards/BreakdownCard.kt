@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PieChart
 import androidx.compose.material3.MaterialTheme
@@ -117,11 +119,11 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
                     FieldLabel("From")
-                    DateField(value = from, onChange = { from = it }, maxDate = to.ifEmpty { s.today })
+                    DateField(value = from, onChange = { from = it }, maxDate = to.ifEmpty { s.today }, placeholder = "Start date")
                 }
                 Column(Modifier.weight(1f)) {
                     FieldLabel("To")
-                    DateField(value = to, onChange = { to = it }, maxDate = s.today)
+                    DateField(value = to, onChange = { to = it }, maxDate = s.today, placeholder = "Max date")
                 }
             }
         }
@@ -151,15 +153,13 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Insight("Avg spending/day", fmtD(s, data.avgPerDay))
+            Insight("Avg spending/day", fmtD(s, data.avgPerDay), Modifier.weight(1.3f))
             StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
-            Insight("Top", data.topCategory?.label ?: "—")
+            Insight("Txns", data.txnCount.toString(), Modifier.weight(0.8f))
             StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
-            Insight("Txns", data.txnCount.toString())
-            StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
-            Insight("Biggest", data.biggestInRange?.let { fmtD(s, it.amount) } ?: "—")
+            Insight("Biggest", data.biggestInRange?.let { fmtD(s, it.amount) } ?: "—", Modifier.weight(1f))
         }
 
         Spacer(Modifier.height(16.dp))
@@ -282,9 +282,9 @@ private fun TotalsBox(
 }
 
 @Composable
-private fun Insight(label: String, value: String) {
+private fun Insight(label: String, value: String, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
-    Column {
+    Column(modifier) {
         Text(label, fontSize = 10.5.sp, color = cs.onSurfaceVariant)
         Text(value, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
@@ -297,7 +297,10 @@ private fun LinkText(text: String, onClick: () -> Unit) {
         color = MaterialTheme.colorScheme.primary,
         fontSize = 12.5.sp,
         fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(2.dp)
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 4.dp, vertical = 2.dp)
     )
 }
 

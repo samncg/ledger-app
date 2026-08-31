@@ -43,7 +43,7 @@ fun TrendCard(vm: LedgerViewModel, s: LedgerState) {
     val heatmap = s.prefs.trendStyle == "heatmap"
     val ranges =
         if (heatmap) listOf(30 to "30d", 90 to "90d", 365 to "1y") else listOf(7 to "7d", 14 to "14d", 30 to "30d")
-    var range by remember { mutableStateOf(if (heatmap) 30 else 14) }
+    var range by remember { mutableStateOf(30) }
     var series by remember { mutableStateOf(listOf("__total__")) }
     var monthOffset by remember { mutableIntStateOf(0) }
 

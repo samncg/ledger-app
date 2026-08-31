@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -78,10 +80,16 @@ import com.ledger.app.ui.parseColor
 import com.ledger.app.util.dateKeyFromMillis
 import com.ledger.app.util.millisFromDateKey
 import com.ledger.app.util.monthLabel
-
-/* ═══════════════════════════════════════════
-   SHARED COMPONENTS
-   ═══════════════════════════════════════════ */
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Light tap-style haptic feedback, reused across interactive controls. */
 @Composable
@@ -212,7 +220,7 @@ fun AppTextField(
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
-        modifier = modifier.height(48.dp),
+        modifier = modifier,
         label = label?.let { { Text(it) } },
         placeholder = placeholder.ifEmpty { null }?.let { { Text(it) } },
         singleLine = true,
@@ -220,7 +228,7 @@ fun AppTextField(
         trailingIcon = trailingIcon,
         textStyle = if (mono) TextStyle(
             fontFamily = FontFamily.Monospace,
-            fontSize = 12.5.sp
+            fontSize = 13.sp
         ) else TextStyle(fontSize = 13.sp),
         keyboardOptions = if (numeric) KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
         keyboardActions = if (onDone != null) KeyboardActions(onDone = { onDone() }) else KeyboardActions.Default,
@@ -372,6 +380,10 @@ fun ColorRow(label: String, hex: String, onChange: (String) -> Unit) {
 fun ColorPickerDialog(initial: String, onChange: (String) -> Unit, onDismiss: () -> Unit) {
     var hex by remember { mutableStateOf(initial) }
     val tick = rememberHapticTick()
+    val initHsv = remember(initial) { hexToHsv(initial) }
+    var hue by remember(initial) { mutableStateOf(initHsv[0]) }
+    var sat by remember(initial) { mutableStateOf(initHsv[1]) }
+    var value by remember(initial) { mutableStateOf(initHsv[2]) }
     val swatches = listOf(
         "#000000",
         "#ffffff",
@@ -386,11 +398,30 @@ fun ColorPickerDialog(initial: String, onChange: (String) -> Unit, onDismiss: ()
         "#4a5568",
         "#c04a30"
     )
+
+    fun applyHsv() {
+        hex = hsvToHex(hue, sat, value)
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pick a color") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                // Live preview
+                Box(
+                    Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(8.dp))
+                        .background(parseColor(hex) ?: Color.Transparent)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                )
+                Spacer(Modifier.height(10.dp))
+                Text("Hue", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Slider(value = hue, valueRange = 0f..360f, onValueChange = { hue = it; applyHsv() })
+                Text("Saturation", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Slider(value = sat, valueRange = 0f..1f, onValueChange = { sat = it; applyHsv() })
+                Text("Brightness", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Slider(value = value, valueRange = 0f..1f, onValueChange = { value = it; applyHsv() })
+                Spacer(Modifier.height(10.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     swatches.forEach { c ->
                         val selected = c.equals(hex, ignoreCase = true)
@@ -402,7 +433,11 @@ fun ColorPickerDialog(initial: String, onChange: (String) -> Unit, onDismiss: ()
                                     if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                     CircleShape
                                 )
-                                .clickable { tick(); hex = c },
+                                .clickable {
+                                    tick(); hex = c
+                                    val ca = hexToHsv(c)
+                                    hue = ca[0]; sat = ca[1]; value = ca[2]
+                                },
                         )
                     }
                 }
@@ -413,6 +448,48 @@ fun ColorPickerDialog(initial: String, onChange: (String) -> Unit, onDismiss: ()
         confirmButton = { TextButton(onClick = { if (parseColor(hex) != null) onChange(hex) }) { Text("OK") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** Convert HSV (hue 0–360, sat/value 0–1) to a "#rrggbb" hex string. */
+private fun hsvToHex(h: Float, s: Float, v: Float): String {
+    val c = v * s
+    val hp = ((h % 360f) + 360f) % 360f / 60f
+    val x = c * (1f - kotlin.math.abs((hp % 2f) - 1f))
+    val (r1, g1, b1) = when (hp.toInt()) {
+        0 -> Triple(c, x, 0f)
+        1 -> Triple(x, c, 0f)
+        2 -> Triple(0f, c, x)
+        3 -> Triple(0f, x, c)
+        4 -> Triple(x, 0f, c)
+        else -> Triple(c, 0f, x)
+    }
+    val m = v - c
+    val r = (((r1 + m) * 255).roundToInt()).coerceIn(0, 255)
+    val g = (((g1 + m) * 255).roundToInt()).coerceIn(0, 255)
+    val b = (((b1 + m) * 255).roundToInt()).coerceIn(0, 255)
+    return String.format("#%02x%02x%02x", r, g, b)
+}
+
+/** Parse "#rrggbb"/"#rgb"/"rgba(...)" into HSV (hue 0–360, sat 0–1, value 0–1). */
+private fun hexToHsv(hex: String): FloatArray {
+    val c = parseColor(hex) ?: Color.Black
+    val r = c.red;
+    val g = c.green;
+    val b = c.blue
+    val max = maxOf(r, g, b)
+    val min = minOf(r, g, b)
+    val d = max - min
+    var h = 0f
+    if (d > 0f) {
+        h = when (max) {
+            r -> ((g - b) / d) % 6f
+            g -> ((b - r) / d) + 2f
+            else -> ((r - g) / d) + 4f
+        } * 60f
+        if (h < 0f) h += 360f
+    }
+    val s = if (max <= 0f) 0f else d / max
+    return floatArrayOf(h, s, max)
 }
 
 /* ─── Tabs & selects ─── */
@@ -481,7 +558,13 @@ fun SelectField(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DateField(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, maxDate: String? = null) {
+fun DateField(
+    value: String,
+    onChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    maxDate: String? = null,
+    placeholder: String = "",
+) {
     var open by remember { mutableStateOf(false) }
     val tick = rememberHapticTick()
     val maxMillis = maxDate?.let { millisFromDateKey(it) }
@@ -508,7 +591,13 @@ fun DateField(value: String, onChange: (String) -> Unit, modifier: Modifier = Mo
         }
     }
     Box(modifier) {
-        AppTextField(value = value, onChange = {}, modifier = Modifier.fillMaxWidth(), readOnly = true)
+        AppTextField(
+            value = value,
+            onChange = {},
+            modifier = Modifier.fillMaxWidth(),
+            readOnly = true,
+            placeholder = placeholder
+        )
         Box(Modifier.matchParentSize().clickable { tick(); open = true })
     }
 }
@@ -574,15 +663,47 @@ fun CardContainer(
 @Composable
 fun ToastOverlay(toast: com.ledger.app.ui.ToastMsg?, dotColor: Color, onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val coroutineScope = rememberCoroutineScope()
     AnimatedVisibility(
         visible = toast != null,
         enter = fadeIn() + slideInVertically { -it },
         exit = fadeOut() + slideOutVertically { -it },
     ) {
         toast?.let { t ->
+            val offsetX = remember(t.id) { Animatable(0f) }
             Surface(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                    .alpha((1f - (abs(offsetX.value) / 350f)).coerceIn(0f, 1f))
+                    .pointerInput(t.id) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (abs(offsetX.value) > 180f) {
+                                    coroutineScope.launch {
+                                        val targetX = if (offsetX.value > 0) 1000f else -1000f
+                                        offsetX.animateTo(targetX, tween(150))
+                                        onDismiss()
+                                    }
+                                } else {
+                                    coroutineScope.launch {
+                                        offsetX.animateTo(0f, tween(200))
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                coroutineScope.launch { offsetX.animateTo(0f, tween(200)) }
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                coroutineScope.launch {
+                                    offsetX.snapTo(offsetX.value + dragAmount)
+                                }
+                            }
+                        )
+                    },
                 shape = RoundedCornerShape(12.dp),
                 color = cs.surface,
                 border = BorderStroke(1.dp, cs.outline),
@@ -597,11 +718,15 @@ fun ToastOverlay(toast: com.ledger.app.ui.ToastMsg?, dotColor: Color, onDismiss:
                     Text(t.msg, Modifier.weight(1f), fontSize = 13.sp)
                     if (t.action != null) {
                         Spacer(Modifier.width(10.dp))
-                        TextButton(onClick = onDismiss) {
+                        TextButton(onClick = {
+                            t.action.run()
+                            onDismiss()
+                        }) {
                             Text(
                                 t.action.label,
                                 fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = cs.primary
                             )
                         }
                     }

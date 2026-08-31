@@ -146,11 +146,11 @@ fun HistoryCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
                     FieldLabel("From")
-                    DateField(value = dateFrom, onChange = { dateFrom = it }, maxDate = dateTo.ifEmpty { s.today })
+                    DateField(value = dateFrom, onChange = { dateFrom = it }, maxDate = dateTo.ifEmpty { s.today }, placeholder = "Start date")
                 }
                 Column(Modifier.weight(1f)) {
                     FieldLabel("To")
-                    DateField(value = dateTo, onChange = { dateTo = it }, maxDate = s.today)
+                    DateField(value = dateTo, onChange = { dateTo = it }, maxDate = s.today, placeholder = "Max date")
                 }
             }
             if (filterCats.isNotEmpty()) {

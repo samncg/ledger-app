@@ -1,6 +1,7 @@
 package com.ledger.app.ui.components.cards
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,7 +64,18 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
         icon = Icons.Outlined.Bolt,
         count = if (s.recurring.isNotEmpty()) "(${s.recurring.size})" else null,
         trailing = if (s.recurring.isNotEmpty()) {
-            { Text("Run now", color = cs.primary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(2.dp)) }
+            {
+                Text(
+                    "Run now",
+                    color = cs.primary,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { vm.runRecurringNow() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
         } else null,
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -75,7 +87,14 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
                 ) + if (s.balancesOn) listOf("balance" to "Top up balance") else emptyList(),
                 onChange = { autoType = it },
             )
-            AppTextField(value = autoAmount, onChange = { autoAmount = it }, modifier = Modifier.weight(1f), placeholder = "Amount", mono = true, numeric = true)
+            AppTextField(
+                value = autoAmount,
+                onChange = { autoAmount = it },
+                modifier = Modifier.weight(1f),
+                placeholder = "Amount",
+                mono = true,
+                numeric = true
+            )
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -91,12 +110,24 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
                 options = FREQ_OPTIONS.toList(),
                 onChange = { autoFreq = it },
             )
-            DateField(value = autoStart, onChange = { autoStart = it }, maxDate = s.today, modifier = Modifier.weight(1f))
+            DateField(value = autoStart, onChange = { autoStart = it }, modifier = Modifier.weight(1f))
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppTextField(value = autoNote, onChange = { autoNote = it }, modifier = Modifier.weight(1f), placeholder = "Note (optional)")
-            Btn("Add", onClick = { vm.addAutomation(autoType, autoAmount, autoCat, autoFreq, autoStart, autoNote); autoAmount = ""; autoNote = "" }, icon = Icons.Outlined.Add)
+            AppTextField(
+                value = autoNote,
+                onChange = { autoNote = it },
+                modifier = Modifier.weight(1f),
+                placeholder = "Note (optional)"
+            )
+            Btn(
+                "Add",
+                onClick = {
+                    vm.addAutomation(autoType, autoAmount, autoCat, autoFreq, autoStart, autoNote); autoAmount =
+                    ""; autoNote = ""
+                },
+                icon = Icons.Outlined.Add
+            )
         }
 
         if (s.recurring.isNotEmpty()) {
@@ -125,16 +156,22 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
                     Column(Modifier.weight(1f)) {
                         Text(
                             "${FREQ_OPTIONS[r.freq] ?: r.freq} · ${fmt(r.amount, s.cur)} " +
-                                when (r.type) {
-                                    "expense" -> "· ${cat?.label ?: r.category}"
-                                    "budget" -> "to budget"
-                                    else -> "to balance"
-                                },
+                                    when (r.type) {
+                                        "expense" -> "· ${cat?.label ?: r.category}"
+                                        "budget" -> "to budget"
+                                        else -> "to balance"
+                                    },
                             fontSize = 12.5.sp, fontWeight = FontWeight.Medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                         if (r.note.isNotEmpty()) {
-                            Text(r.note, fontSize = 11.sp, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                r.note,
+                                fontSize = 11.sp,
+                                color = cs.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         Text(
                             "Started ${relativeDate(r.start, s.today)} · ${vm.nextRun(r)}",

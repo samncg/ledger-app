@@ -86,10 +86,12 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
-            /* Keep status-bar icons legible on light/dark themes. */
+            /* Keep status-bar and navigation-bar icons legible on light/dark themes. */
             LaunchedEffect(state.theme) {
-                WindowCompat.getInsetsController(window, window.decorView)
-                    .isAppearanceLightStatusBars = !vm.isDark(state.theme)
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                val isLight = !vm.isDark(state.theme)
+                insetsController.isAppearanceLightStatusBars = isLight
+                insetsController.isAppearanceLightNavigationBars = isLight
             }
 
             LedgerTheme(theme = state.theme, fontId = state.prefs.font) {
