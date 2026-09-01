@@ -7,6 +7,34 @@
 > do **not** rewrite history here, and keep each entry to a single compressed line. If you make a series
 > of changes in one session, group them under one `Added/Changed/Fixed` entry.
 
+## v0.1.4
+
+A private, local-first budgeting app that tracks your daily allowance and banks whatever you don't spend.
+
+### ✨ What's New
+- **Scrub the daily spend strip** — slide your finger across the "Daily spend · this period" bars to preview each day's date and spending in real time, with a haptic tick per day; tap any bar to pin it.
+- **Month browser** — a ‹ / › selector on the Spending trend and Category breakdown cards lets you look back at previous months with full-month views.
+- **Liquid glass screens** — give the Log a spend and History views a frosted glass look from Settings → Theme → Liquid glass, and optionally make the inner cards themselves liquid glass on a flat, lighter background.
+- **Full color picker** — new Hue, Saturation, and Brightness sliders with a live preview, so you can pick any color alongside the preset swatches and hex field.
+- **Auto-continue from cloud** — sign in with Google on the intro screen and, if your cloud save exists, the app loads it and skips setup automatically.
+
+### 🔧 Improvements
+- Spending trend now opens on a 30-day view.
+- Heatmap weekday labels no longer clip at the bottom in the 1-year view, and the 1y heatmap scrolls horizontally.
+- Toast notifications swipe away, and the undo action no longer overlaps the card surface.
+- Setup screen: clearer error flashes and Google sign-in restore.
+- Small UI polish — removed a cramped third stat on the breakdown, fixed the budget "LinkText" buttons, trimmed text-field clipping, tidied the Piggy bank layout, reset the bottom pill highlight, and applied keyboard/navigation insets across all forms.
+
+### 🐛 Fixes
+- The budget period now rolls over at each month boundary — on the 1st you see Day 1 / total, and the daily strip, category breakdown, and month label all agree.
+- Full-screen liquid glass falls back to the safe blur + tint recipe (the heavier refraction shader could crash full-screen views), and the drawer sheets stay opaque so scrolling stays smooth.
+
+---
+
+> **Version:** 0.1.4 · **Platform:** Android (APK) · **Requires:** Android 8.0+ (API 26); full liquid-glass effects on Android 13+ (API 33)
+
+---
+
 ## v0.1.3
 
 A private, local-first budgeting app that tracks your daily allowance and banks whatever you don't spend.
@@ -36,6 +64,7 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 
 ## v0.1.x — one-off session log (reverse-chronological)
 
+- Fix (web + Android): budget period now rolls over at each month boundary — `startDate` realigns to the 1st of the current month and `periodDays` syncs to the month length, so on the 1st it shows Day 1/total (not a stale 30/30) and the breakdown, daily strip and month label all agree.
 - Change (Android): spending trend now defaults to 30d instead of 14d.
 - Feature (Android): color picker dialog now includes Hue / Saturation / Brightness sliders + live preview, so any color can be chosen beyond the swatches and hex field.
 - Fix (Android): heatmap weekday labels no longer clip at the bottom in 1y/scrollable mode (tight line height + single-line).

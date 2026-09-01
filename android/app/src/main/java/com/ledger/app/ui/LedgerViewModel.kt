@@ -276,12 +276,21 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         }
     }
 
-    /** Keep the budget period equal to the real length of the current month. */
+    /** Keep the budget period equal to the current calendar month: realign the start to
+    the 1st when the month rolls over, and sync periodDays to the month length. */
     private suspend fun syncMonthlyPeriod(s: LedgerState): LedgerState {
         val settings = s.settings ?: return s
-        val real = daysInMonth()
-        if (settings.periodDays == real) return s
-        val next = settings.copy(periodDays = real)
+        val today = parseDate(todayKey())
+        val real = daysInMonth(today)
+        val firstToday = firstOfMonthKey(today)
+        val firstStart = firstOfMonthKey(parseDate(settings.startDate))
+        // If we've crossed into a new month, the old period is stale — roll it over.
+        val needRealign = firstStart != firstToday
+        if (!needRealign && settings.periodDays == real) return s
+        val next = settings.copy(
+            periodDays = real,
+            startDate = if (needRealign) firstToday else settings.startDate
+        )
         repo.saveSettings(next)
         return s.copy(settings = next)
     }
@@ -303,9 +312,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         update { it }
         val cur = _state.value
         cur.settings?.let { settings ->
-            val real = daysInMonth()
-            if (settings.periodDays != real) {
-                val next = settings.copy(periodDays = real)
+            val today = parseDate(todayKey())
+            val real = daysInMonth(today)
+            val firstToday = firstOfMonthKey(today)
+            val firstStart = firstOfMonthKey(parseDate(settings.startDate))
+            val needRealign = firstStart != firstToday
+            if (needRealign || settings.periodDays != real) {
+                val next = settings.copy(
+                    periodDays = real,
+                    startDate = if (needRealign) firstToday else settings.startDate
+                )
                 update { it.copy(settings = next) }
                 viewModelScope.launch { repo.saveSettings(next) }
             }

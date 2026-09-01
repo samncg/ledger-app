@@ -142,8 +142,14 @@ export default function App(){
   /* Auto-sync the budget period to the real length of the current month. */
   useEffect(()=>{
     if(!settings)return;
-    const realDays=daysInMonth(new Date(today+"T00:00:00"));
-    if(settings.periodDays!==realDays){persistSettings({...settings,periodDays:realDays})}
+    const t=new Date(today+"T00:00:00");
+    const realDays=daysInMonth(t);
+    const firstToday=firstOfMonthKey(t);
+    const firstStart=firstOfMonthKey(new Date(settings.startDate+"T00:00:00"));
+    const needRealign=firstStart!==firstToday;
+    if(needRealign||settings.periodDays!==realDays){
+      persistSettings({...settings,periodDays:realDays,startDate:needRealign?firstToday:settings.startDate})
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[today]);
   const persistTheme=useCallback(n=>{setTheme(n);store.set("ledger-theme",n)},[]);
