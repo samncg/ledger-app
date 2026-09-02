@@ -128,6 +128,13 @@ fun BudgetDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
                     Spacer(Modifier.height(4.dp))
                     SectionDesc("Your bank balance. Transfers to the budget come out of this; leftover allowance is banked back into it.")
                 }
+                ToggleRow(
+                    "Overspends come from balance",
+                    "When you spend more than a day's allowance, take it out of your bank balance. Off = the overspend is covered by the monthly budget.",
+                    s.prefs.overspendFromBalance
+                ) {
+                    vm.updatePrefs { p -> p.copy(overspendFromBalance = it) }
+                }
             }
             Column {
                 FieldLabel("Period length (days)")
@@ -714,6 +721,15 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
                 onSelect = { vm.updatePrefs { p -> p.copy(heroMode = it) } },
             )
         }
+        SectionTitle("Budget")
+        ToggleRow(
+            "Overspends come from balance",
+            "When you spend more than a day's allowance, take it out of your bank balance. Off = the overspend is covered by the monthly budget.",
+            s.prefs.overspendFromBalance
+        ) {
+            vm.updatePrefs { p -> p.copy(overspendFromBalance = it) }
+        }
+
         SectionTitle("Currency")
         SelectField(
             value = s.cur, modifier = Modifier.fillMaxWidth(),

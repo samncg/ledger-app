@@ -36,6 +36,13 @@ export default function BudgetDrawer({
                   <input className="input mono" type="number" inputMode="decimal" value={draftBalance} onChange={e=>setDraftBalance(e.target.value)}/>
                 </div>
                 <div className="hero-stat-note" style={{fontSize:12}}>Your bank balance. Transfers to the budget come out of this; leftover allowance is banked back into it.</div>
+                <div className="toggle-row">
+                  <div>
+                    <div className="toggle-label">Overspends come from balance</div>
+                    <div className="toggle-desc">When you spend more than a day's allowance, take it out of your bank balance. Off = covered by the monthly budget.</div>
+                  </div>
+                  <button className={`toggle ${prefs.overspendFromBalance?'on':''}`} onClick={()=>persistPrefs({...prefs,overspendFromBalance:!prefs.overspendFromBalance})} title="Toggle overspend source"/>
+                </div>
               </div>
             )}
             <div>

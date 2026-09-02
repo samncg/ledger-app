@@ -420,10 +420,12 @@ export default function App(){
       if(c.isFuture)break;
       cum+=(byDate[c.date]||0);
       const left=(settings.monthlyBudget+cum)/settings.periodDays-c.spent;
-      banked+=left;
+      // Overspends either drain the bank balance (bank the negative leftover) or come
+      // out of the total budget (bank only the positive leftover), per prefs.
+      banked+=prefs.overspendFromBalance?left:Math.max(0,left);
     }
     return banked;
-  },[settings,topUps,dayCells]);
+  },[settings,topUps,dayCells,prefs.overspendFromBalance]);
   const bankBalance=useMemo(()=>(balance?.start||0)-topUpTotal+bankedSoFar,[balance,topUpTotal,bankedSoFar]);
   const todaySaved=Math.max(0,todayRemaining);
   const heroLabel=heroMode==='balance'?"Balance":"Available today";

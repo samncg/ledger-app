@@ -222,6 +222,7 @@ object FirebaseSyncSerializer {
             "font" to prefs.font,
             "cardOrder" to prefs.cardOrder,
             "balancesEnabled" to prefs.balancesEnabled,
+            "overspendFromBalance" to prefs.overspendFromBalance,
             "heroMode" to prefs.heroMode,
         )
 
@@ -374,6 +375,7 @@ object FirebaseSyncSerializer {
                 if (list.isNotEmpty()) p = p.copy(cardOrder = list)
             }
             (m["balancesEnabled"] as? Boolean)?.let { p = p.copy(balancesEnabled = it) }
+            (m["overspendFromBalance"] as? Boolean)?.let { p = p.copy(overspendFromBalance = it) }
             m["heroMode"]?.toString()?.let { p = p.copy(heroMode = if (it == "balance") "balance" else "daily") }
             p
         }
@@ -396,7 +398,22 @@ object FirebaseSyncSerializer {
             val catColors = (m["catColors"] as? Map<String, Any?>)?.mapNotNull { (k, v) ->
                 v?.toString()?.let { k to it }
             }?.toMap() ?: currentTheme.catColors
-            AppTheme(bg, surface, surface2, text, textDim, textMuted, border, borderStrong, accent, accentFg, negative, warning, positive, catColors)
+            AppTheme(
+                bg,
+                surface,
+                surface2,
+                text,
+                textDim,
+                textMuted,
+                border,
+                borderStrong,
+                accent,
+                accentFg,
+                negative,
+                warning,
+                positive,
+                catColors
+            )
         }
 
         // Saved theme
@@ -418,7 +435,22 @@ object FirebaseSyncSerializer {
             val catColors = (m["catColors"] as? Map<String, Any?>)?.mapNotNull { (k, v) ->
                 v?.toString()?.let { k to it }
             }?.toMap() ?: emptyMap()
-            AppTheme(bg, surface, surface2, text, textDim, textMuted, border, borderStrong, accent, accentFg, negative, warning, positive, catColors)
+            AppTheme(
+                bg,
+                surface,
+                surface2,
+                text,
+                textDim,
+                textMuted,
+                border,
+                borderStrong,
+                accent,
+                accentFg,
+                negative,
+                warning,
+                positive,
+                catColors
+            )
         }
 
         return RemoteSyncResult(

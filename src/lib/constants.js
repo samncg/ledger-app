@@ -77,6 +77,7 @@ export const PREF_DEFAULTS={
   cardOrder:['log','breakdown','trend','history','backup'],
   cardPanel:null,cardPanelOpacity:100,
   balancesEnabled:true, // 'true' = banking-style balance, 'false' = plain budgeting (old behavior)
+  overspendFromBalance:false, // true = overspends drain the bank balance, false = covered by monthly budget
   heroMode:'daily',     // 'daily' = hero shows today's allowance, 'balance' = hero shows bank balance
   piggyTexture:null,piggySound:true,piggySoundId:'coin',piggySoundCustom:null,
 };

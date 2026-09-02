@@ -128,6 +128,7 @@ data class Prefs(
     val font: String = "default",    // default | sans | serif | mono | cursive
     val cardOrder: List<String> = defaultCardOrder,
     val balancesEnabled: Boolean = true,
+    val overspendFromBalance: Boolean = false, // deduct overspends from bank balance (else monthly budget)
     val heroMode: String = "daily",  // "daily" | "balance"
     val wallpaper: String? = null,
     val wallpaperDim: Int = 60,

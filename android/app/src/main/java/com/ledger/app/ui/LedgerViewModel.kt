@@ -270,6 +270,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         s = syncMonthlyPeriod(s)
         _state.value = computeDerived(s)
         if (materialized != null) persistSliceChanges(materialized)
+        // Push any period rollover so the cloud doesn't keep the stale start date.
+        triggerDebouncedPush()
 
         if (s.prefs.notificationsEnabled) {
             NotificationHelper.scheduleDailyReminder(repo.appContext, s.prefs.reminderHour, s.prefs.reminderMinute)
@@ -371,7 +373,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 if (c.isFuture) break
                 cum += byDate[c.date] ?: 0.0
                 val left = (s.settings.monthlyBudget + cum) / s.settings.periodDays - c.spent
-                banked += left
+                // Overspends either drain the bank balance (bank the negative leftover)
+                // or come out of the total budget (bank only the positive leftover),
+                // controlled by prefs.overspendFromBalance.
+                banked += if (s.prefs.overspendFromBalance) left else max(0.0, left)
             }
             banked
         }
