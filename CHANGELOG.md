@@ -64,6 +64,7 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 
 ## v0.1.x — one-off session log (reverse-chronological)
 
+- Fix (web + Android): "Saved to balance" now banks using the current net daily budget (monthlyBudget + net top-ups), so it always matches the shown "Daily allowance"; the old per-day top-up accumulation inflated the saved amount when allowance top-ups were later returned.
 - Feature (web + Android): new "Overspends come from balance" budget preference (Settings → Budget settings and Settings → Prefs) — choose whether an overspend drains the bank balance or is covered by the monthly budget (default: monthly budget); the pref is now cloud-synced.
 - Fix (web + Android): banked leftover is now clamped to non-negative — overspending reduces the total budget (and shows in Budget Progress) instead of draining the bank balance; combined with the month rollover, the daily strip / "Saved to balance" no longer count a stale day.
 - Fix (web + Android): budget period now rolls over at each month boundary — `startDate` realigns to the 1st of the current month and `periodDays` syncs to the month length, so on the 1st it shows Day 1/total (not a stale 30/30) and the breakdown, daily strip and month label all agree.

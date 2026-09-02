@@ -413,19 +413,16 @@ export default function App(){
      retroactively change it), so returning money to the balance feels exact. */
   const bankedSoFar=useMemo(()=>{
     if(!settings)return 0;
-    const byDate={};
-    for(const t of topUps)byDate[t.date]=(byDate[t.date]||0)+t.amount;
-    let cum=0,banked=0;
+    let banked=0;
     for(const c of dayCells){
       if(c.isFuture)break;
-      cum+=(byDate[c.date]||0);
-      const left=(settings.monthlyBudget+cum)/settings.periodDays-c.spent;
+      const left=dailyBudget-c.spent;
       // Overspends either drain the bank balance (bank the negative leftover) or come
       // out of the total budget (bank only the positive leftover), per prefs.
       banked+=prefs.overspendFromBalance?left:Math.max(0,left);
     }
     return banked;
-  },[settings,topUps,dayCells,prefs.overspendFromBalance]);
+  },[settings,dayCells,dailyBudget,prefs.overspendFromBalance]);
   const bankBalance=useMemo(()=>(balance?.start||0)-topUpTotal+bankedSoFar,[balance,topUpTotal,bankedSoFar]);
   const todaySaved=Math.max(0,todayRemaining);
   const heroLabel=heroMode==='balance'?"Balance":"Available today";

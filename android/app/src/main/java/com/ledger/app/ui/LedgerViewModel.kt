@@ -364,15 +364,14 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val todayRemaining = dailyBudget - todaySpent
 
         /* Bank balance = starting money, plus the leftover allowance banked at the end
-           of each day, minus money moved over to the monthly budget. */
+           of each day, minus money moved over to the monthly budget.
+           Leftovers use the CURRENT net dailyBudget (monthlyBudget + net topUps), so it
+           always agrees with the "Daily allowance" shown — no per-day topUp inflation. */
         val bankedSoFar = if (s.settings == null) 0.0 else {
-            val byDate = s.topUps.groupBy({ it.date }, { it.amount }).mapValues { (_, v) -> v.sum() }
-            var cum = 0.0;
             var banked = 0.0
             for (c in dayCells) {
                 if (c.isFuture) break
-                cum += byDate[c.date] ?: 0.0
-                val left = (s.settings.monthlyBudget + cum) / s.settings.periodDays - c.spent
+                val left = dailyBudget - c.spent
                 // Overspends either drain the bank balance (bank the negative leftover)
                 // or come out of the total budget (bank only the positive leftover),
                 // controlled by prefs.overspendFromBalance.
