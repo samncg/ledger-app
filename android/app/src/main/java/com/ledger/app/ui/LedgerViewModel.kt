@@ -603,7 +603,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         var changed = false
         val next = rules.map { r ->
             if (!r.active) return@map r
-            val from = r.last?.let { addDays(it, 1) } ?: r.start.ifEmpty { today }
+            val from = r.last?.let { todayKey(advanceDate(parseDate(it), r.freq)) } ?: r.start.ifEmpty { today }
             val cursor = parseDate(from)
             val end = parseDate(today)
             if (cursor.isAfter(end)) return@map r
@@ -706,7 +706,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
     fun nextRun(r: Rule): String {
         if (!r.active) return "Paused"
-        val from = r.last?.let { addDays(it, 1) } ?: r.start.ifEmpty { _state.value.today }
+        val from = r.last?.let { todayKey(advanceDate(parseDate(it), r.freq)) } ?: r.start.ifEmpty { _state.value.today }
         val diff = dayDiff(_state.value.today, from)
         return when {
             diff <= 0 -> "Due today"

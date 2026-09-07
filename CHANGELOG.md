@@ -26,6 +26,7 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 - Small UI polish — removed a cramped third stat on the breakdown, fixed the budget "LinkText" buttons, trimmed text-field clipping, tidied the Piggy bank layout, reset the bottom pill highlight, and applied keyboard/navigation insets across all forms.
 
 ### 🐛 Fixes
+- Fix (web + Android): recurring automations now advance by their configured frequency (daily / weekly / monthly) instead of firing every day after the first run; the next-occurrence date was computed as last + 1 day regardless of freq, so a monthly rule activated daily. Both runRecurring and the next-run label now use advanceDate(last, freq) (web App.jsx, Android LedgerViewModel.kt).
 - The budget period now rolls over at each month boundary — on the 1st you see Day 1 / total, and the daily strip, category breakdown, and month label all agree.
 - Full-screen liquid glass falls back to the safe blur + tint recipe (the heavier refraction shader could crash full-screen views), and the drawer sheets stay opaque so scrolling stays smooth.
 

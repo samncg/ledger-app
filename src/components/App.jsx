@@ -586,7 +586,7 @@ export default function App(){
     let changed=false;
     const next=rules.map(r=>{
       if(!r.active)return r;
-      const from=r.last?addDays(r.last,1):(r.start||today);
+      const from=r.last?todayKey(advanceDate(r.last,r.freq)):(r.start||today);
       const cursor=new Date(from+"T00:00:00");
       const end=new Date(today+"T00:00:00");
       if(cursor>end)return r;
@@ -632,7 +632,7 @@ export default function App(){
   };
   const nextRun=r=>{
     if(!r.active)return"Paused";
-    const from=r.last?addDays(r.last,1):(r.start||today);
+    const from=r.last?todayKey(advanceDate(r.last,r.freq)):(r.start||today);
     const diff=dayDiff(today,from);
     if(diff<=0)return"Due today";
     return diff===1?"Tomorrow":`in ${diff}d`;
