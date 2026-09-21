@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">Дневной лимит на сегодня</string>
+    <string name="widget_no_data">Откройте Ledger, чтобы начать</string>
+    <string name="widget_no_budget">Бюджет пока не задан</string>
+    <string name="widget_left">Осталось %1$s на сегодня</string>
+    <string name="widget_over">Превышение на %1$s сегодня</string>
+    <string name="widget_pie_label">Круговая диаграмма</string>
+    <string name="widget_pie_desc">Траты по категориям за период</string>
+    <string name="widget_budget_label">Прогресс бюджета</string>
+    <string name="widget_budget_desc">Траты за период относительно месячного бюджета</string>
+    <string name="widget_piggy_label">Копилка</string>
+    <string name="widget_piggy_desc">Прогресс к цели вашей копилки</string>
+    <string name="widget_streak_label">Серия записей</string>
+    <string name="widget_streak_desc">Дней подряд с записями</string>
+</resources>

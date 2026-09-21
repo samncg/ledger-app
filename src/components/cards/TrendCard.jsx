@@ -1,4 +1,5 @@
 import { I } from '../../lib/icons';
+import { t } from '../../lib/i18n';
 
 /* Spending trend — line chart or GitHub-style heatmap */
 export default function TrendCard({
@@ -11,11 +12,11 @@ export default function TrendCard({
       <div className="card-title">
         <span className="card-title-left">
           <span className="card-title-icon"><I.Trend/></span>
-          {prefs.trendStyle==='heatmap'?'Spending heatmap':'Spending trend'}
+          {prefs.trendStyle==='heatmap'?t('card.trend.heatmapTitle'):t('card.trend.title')}
         </span>
         <div className="range-tabs" style={{marginBottom:0,padding:3}}>
           {(prefs.trendStyle==='heatmap'?[30,90,365]:[7,14,30]).map(n=>(
-            <button key={n} className={`range-tab ${trendRange===n?'active':''}`} onClick={()=>setTrendRange(n)} style={{padding:'6px 12px',fontSize:11}}>{n<365?`${n}d`:'1y'}</button>
+            <button key={n} className={`range-tab ${trendRange===n?'active':''}`} onClick={()=>setTrendRange(n)} style={{padding:'6px 12px',fontSize:11}}>{n<365?t('card.trend.days',{n}):t('card.trend.year')}</button>
           ))}
         </div>
       </div>
@@ -23,36 +24,36 @@ export default function TrendCard({
         <div className="heatmap-wrap" ref={heatWrapRef}>
           <div className="heatmap-body">
             <div className="heat-days" style={{gridTemplateRows:`repeat(7,${heatCell}px)`,gap:3}}>
-              <span className="heat-day-label" style={{gridRow:1}}>Mon</span>
-              <span className="heat-day-label" style={{gridRow:2}}>Tue</span>
-              <span className="heat-day-label" style={{gridRow:3}}>Wed</span>
-              <span className="heat-day-label" style={{gridRow:4}}>Thu</span>
-              <span className="heat-day-label" style={{gridRow:5}}>Fri</span>
-              <span className="heat-day-label" style={{gridRow:6}}>Sat</span>
-              <span className="heat-day-label" style={{gridRow:7}}>Sun</span>
+              <span className="heat-day-label" style={{gridRow:1}}>{t('card.trend.mon')}</span>
+              <span className="heat-day-label" style={{gridRow:2}}>{t('card.trend.tue')}</span>
+              <span className="heat-day-label" style={{gridRow:3}}>{t('card.trend.wed')}</span>
+              <span className="heat-day-label" style={{gridRow:4}}>{t('card.trend.thu')}</span>
+              <span className="heat-day-label" style={{gridRow:5}}>{t('card.trend.fri')}</span>
+              <span className="heat-day-label" style={{gridRow:6}}>{t('card.trend.sat')}</span>
+              <span className="heat-day-label" style={{gridRow:7}}>{t('card.trend.sun')}</span>
             </div>
             <div className="heatmap-grid" style={{gridTemplateColumns:`repeat(${heatData.weeks},${heatCell}px)`,gridTemplateRows:`repeat(7,${heatCell}px)`,gap:3}}>
               {heatData.cells.map(c=>(
                 <div key={c.date} className="heat-cell"
                   style={{width:heatCell,height:heatCell,background:c.level===0?(heatColors.l0&&heatColors.l0!=='transparent'?heatColors.l0:'transparent'):heatColors['l'+c.level]}}
-                  title={`${relativeDate(c.date,today)} · Spent ${MYR(c.spent)}`}/>
+                  title={t('card.trend.cellTitle',{date:relativeDate(c.date,today),amount:MYR(c.spent)})}/>
               ))}
             </div>
           </div>
           <div className="heat-legend">
-            <span className="heat-legend-label">Less</span>
+            <span className="heat-legend-label">{t('card.trend.less')}</span>
             {['l0','l1','l2','l3','l4'].map(k=>(
               <span key={k} className="heat-legend-cell" style={{background:(k==='l0'&&(heatColors.l0==='transparent'||!heatColors.l0))?'transparent':heatColors[k]}}/>
             ))}
-            <span className="heat-legend-label">More</span>
-            <span className="heat-legend-total">{MYR(heatData.total)} spent</span>
+            <span className="heat-legend-label">{t('card.trend.more')}</span>
+            <span className="heat-legend-total">{t('card.trend.totalSpent',{amount:MYR(heatData.total)})}</span>
           </div>
         </div>
       ):(
       <>
       <div className="cat-pills" style={{marginBottom:8}}>
         <button className={`cat-pill ${trendSeries.includes("__total__")?"active":""}`} onClick={()=>toggleTrendSeries("__total__")} style={{'--cat-color':theme.accent}}>
-          <span className="cat-dot"/> Total
+          <span className="cat-dot"/> {t('card.trend.total')}
         </button>
         {cats.map(c=>(
           <button key={c.id} className={`cat-pill ${trendSeries.includes(c.id)?"active":""}`} onClick={()=>toggleTrendSeries(c.id)} style={{'--cat-color':c.color}}>
@@ -60,7 +61,7 @@ export default function TrendCard({
           </button>
         ))}
       </div>
-      <div className="section-desc" style={{marginTop:-4,marginBottom:14}}>Pick one or more — each category draws its own line.</div>
+      <div className="section-desc" style={{marginTop:-4,marginBottom:14}}>{t('card.trend.pickHint')}</div>
       <div className="trend-chart">
         <svg className="trend-svg" viewBox={`0 0 ${trendData.length*40} 160`} preserveAspectRatio="none">
           <g className="trend-grid">
@@ -112,7 +113,7 @@ export default function TrendCard({
         {trendSeriesList.map(s=>(
           <span key={s.id}><span className="legend-dot" style={{background:s.color}}/>{s.label}</span>
         ))}
-        {dailyBudget>0&&<span><span className="legend-dot" style={{background:theme.warning}}/>Allowance ({MYR(dailyBudget)})</span>}
+        {dailyBudget>0&&<span><span className="legend-dot" style={{background:theme.warning}}/>{t('card.trend.allowance',{amount:MYR(dailyBudget)})}</span>}
       </div>
       </>
       )}

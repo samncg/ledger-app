@@ -38,7 +38,7 @@ try {
   dom.window.localStorage.setItem('ledger-catbudgets', JSON.stringify({ food: 200 }));
 
   const seeded = render();
-  for (const needle of ['Log a spend', 'Category breakdown', 'Spending trend', 'History', 'Automations', 'Piggy bank', 'Data &amp; backup', 'Available today']) {
+  for (const needle of ['Log a spend', 'Category breakdown', 'Spending trend', 'History', 'Automations', 'Piggy bank', 'Data &amp; backup', 'Available today', 'Streak']) {
     if (!seeded.includes(needle)) throw new Error('dashboard missing: ' + needle);
   }
   console.log('OK seeded render:', seeded.length, 'chars, all cards present');

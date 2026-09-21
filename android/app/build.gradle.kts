@@ -14,8 +14,8 @@ android {
         applicationId = "com.ledger.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.4"
+        versionCode = 6
+        versionName = "0.1.6"
     }
 
     signingConfigs {
@@ -84,4 +84,6 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.play.services.auth)
     implementation(libs.backdrop)
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.work.runtime.ktx)
 }

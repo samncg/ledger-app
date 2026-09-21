@@ -25,13 +25,14 @@ import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.GlassScreenBackground
 import com.ledger.app.ui.components.cards.HistoryCard
 import com.ledger.app.ui.components.cards.LogCard
+import com.ledger.app.ui.t
 
 /* ─── Log a spend — full-screen view with a glass backdrop ─── */
 @Composable
 fun LogScreen(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
     GlassScreenBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            ScreenHeader("Log a spend")
+            ScreenHeader(t("log.title"))
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -57,7 +58,7 @@ fun HistoryScreen(
 ) {
     GlassScreenBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            ScreenHeader("History")
+            ScreenHeader(t("history.title"))
             Column(
                 Modifier.fillMaxWidth()
                     .padding(horizontal = 16.dp)

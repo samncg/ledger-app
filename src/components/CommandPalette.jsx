@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { t } from '../lib/i18n';
 
 /* ═══════════════════════════════════════════
    COMMAND PALETTE
@@ -25,9 +26,9 @@ export default function CommandPalette({actions,onClose}){
   return(
     <div className="cmd-overlay" onClick={onClose}>
       <div className="cmd-box" onClick={e=>e.stopPropagation()}>
-        <input ref={inputRef} className="cmd-input" placeholder="Search commands…" value={q} onChange={e=>setQ(e.target.value)}/>
+        <input ref={inputRef} className="cmd-input" placeholder={t('palette.search')} value={q} onChange={e=>setQ(e.target.value)}/>
         <div className="cmd-list">
-          {filtered.length===0&&<div className="cmd-empty">No commands match.</div>}
+          {filtered.length===0&&<div className="cmd-empty">{t('palette.noMatch')}</div>}
           {filtered.map((a,i)=>{
             const Icon=a.icon;
             return(
@@ -42,9 +43,9 @@ export default function CommandPalette({actions,onClose}){
           })}
         </div>
         <div className="cmd-hint-bar">
-          <span><span className="kbd">↑↓</span> Navigate</span>
-          <span><span className="kbd">↵</span> Select</span>
-          <span><span className="kbd">Esc</span> Close</span>
+          <span><span className="kbd">↑↓</span> {t('palette.navigate')}</span>
+          <span><span className="kbd">↵</span> {t('palette.select')}</span>
+          <span><span className="kbd">Esc</span> {t('palette.close')}</span>
         </div>
       </div>
     </div>

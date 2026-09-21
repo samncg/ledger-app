@@ -48,7 +48,9 @@ import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.AppTextField
 import com.ledger.app.ui.components.Btn
 import com.ledger.app.ui.components.CardContainer
+import com.ledger.app.ui.components.innerSurfaceColor
 import com.ledger.app.ui.components.FieldLabel
+import com.ledger.app.ui.t
 import com.ledger.app.util.fmt
 import kotlin.math.min
 
@@ -80,7 +82,7 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
     val pct = if (target > 0) min(100.0, saved / target * 100) else 0.0
 
     CardContainer(
-        title = "Piggy banks",
+        title = t("card.piggy.title"),
         icon = Icons.Outlined.Wallet,
         count = if (piggies.size > 1) "${piggies.size}" else if (target > 0) "${Math.round(pct)}%" else null,
         trailing = {
@@ -90,7 +92,7 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                         goalDraft = if (target > 0) target.toString() else ""
                         editingGoal = true
                     }) {
-                        Text(if (target > 0) "Edit goal" else "Set goal", fontSize = 12.5.sp)
+                        Text(if (target > 0) t("card.piggy.editGoal") else t("card.piggy.setGoal"), fontSize = 12.5.sp)
                     }
                 }
                 IconButton(
@@ -99,7 +101,7 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                 ) {
                     Icon(
                         Icons.Outlined.Palette,
-                        contentDescription = "Customize",
+                        contentDescription = t("card.piggy.customize"),
                         modifier = Modifier.size(16.dp),
                         tint = if (showCustomize) cs.primary else cs.onSurfaceVariant
                     )
@@ -135,7 +137,7 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            p.name.ifBlank { "Piggy bank" },
+                            p.name.ifBlank { t("card.piggy.defaultName") },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (isSelected) cs.onPrimary else cs.onSurface
@@ -163,7 +165,12 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(Icons.Outlined.Add, null, modifier = Modifier.size(13.dp), tint = cs.onSurfaceVariant)
-                        Text("New", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurfaceVariant)
+                        Text(
+                            t("card.piggy.new"),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = cs.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -176,22 +183,22 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(cs.surfaceVariant)
+                    .background(innerSurfaceColor())
                     .padding(12.dp)
             ) {
-                Text("Create new piggy bank", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
+                Text(t("card.piggy.createTitle"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
                 Spacer(Modifier.height(8.dp))
                 AppTextField(
                     value = newName,
                     onChange = { newName = it },
-                    placeholder = "Name (e.g. Vacation fund)",
+                    placeholder = t("card.piggy.namePlaceholder"),
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(6.dp))
                 AppTextField(
                     value = newTarget,
                     onChange = { newTarget = it },
-                    placeholder = "Target goal (e.g. 500)",
+                    placeholder = t("card.piggy.targetPlaceholder"),
                     mono = true,
                     numeric = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -205,9 +212,14 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Btn("Cancel", onClick = { isCreating = false; newName = ""; newTarget = "" }, variant = "ghost", small = true)
+                    Btn(
+                        t("card.piggy.cancel"),
+                        onClick = { isCreating = false; newName = ""; newTarget = "" },
+                        variant = "ghost",
+                        small = true
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Btn("Create", onClick = {
+                    Btn(t("card.piggy.create"), onClick = {
                         val tVal = newTarget.toDoubleOrNull() ?: 0.0
                         vm.addPiggy(newName, tVal)
                         newName = ""
@@ -230,7 +242,7 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                     AppTextField(
                         value = renameDraft,
                         onChange = { renameDraft = it },
-                        placeholder = "Name",
+                        placeholder = t("card.piggy.renamePlaceholder"),
                         modifier = Modifier.weight(1f),
                         onDone = {
                             if (renameDraft.isNotBlank()) vm.renamePiggy(activeId, renameDraft)
@@ -242,12 +254,21 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                         if (renameDraft.isNotBlank()) vm.renamePiggy(activeId, renameDraft)
                         isRenaming = false
                     }, small = true, icon = Icons.Outlined.Check)
-                    Btn("", onClick = { isRenaming = false }, variant = "ghost", small = true, icon = Icons.Outlined.Close)
+                    Btn(
+                        "",
+                        onClick = { isRenaming = false },
+                        variant = "ghost",
+                        small = true,
+                        icon = Icons.Outlined.Close
+                    )
                 }
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
-                        activePiggy.name.ifBlank { "Piggy bank" },
+                        activePiggy.name.ifBlank { t("card.piggy.defaultName") },
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = cs.onSurface
@@ -256,7 +277,12 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                         onClick = { renameDraft = activePiggy.name; isRenaming = true },
                         modifier = Modifier.size(24.dp)
                     ) {
-                        Icon(Icons.Outlined.Edit, "Rename", modifier = Modifier.size(13.dp), tint = cs.onSurfaceVariant)
+                        Icon(
+                            Icons.Outlined.Edit,
+                            t("card.piggy.rename"),
+                            modifier = Modifier.size(13.dp),
+                            tint = cs.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -265,7 +291,12 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                     onClick = { vm.deletePiggy(activeId) },
                     modifier = Modifier.size(24.dp)
                 ) {
-                    Icon(Icons.Outlined.Delete, "Delete", modifier = Modifier.size(15.dp), tint = cs.error)
+                    Icon(
+                        Icons.Outlined.Delete,
+                        t("card.piggy.delete"),
+                        modifier = Modifier.size(15.dp),
+                        tint = cs.error
+                    )
                 }
             }
         }
@@ -277,7 +308,7 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                 Modifier
                     .size(width = 96.dp, height = 80.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(cs.surfaceVariant),
+                    .background(innerSurfaceColor()),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(activePiggy.texture ?: "🐷", fontSize = 42.sp)
@@ -295,8 +326,19 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                             modifier = Modifier.weight(1f),
                             onDone = { vm.savePiggyTarget(activeId, goalDraft); editingGoal = false },
                         )
-                        Btn("", onClick = { vm.savePiggyTarget(activeId, goalDraft); editingGoal = false }, small = true, icon = Icons.Outlined.Check)
-                        Btn("", onClick = { editingGoal = false }, variant = "ghost", small = true, icon = Icons.Outlined.Close)
+                        Btn(
+                            "",
+                            onClick = { vm.savePiggyTarget(activeId, goalDraft); editingGoal = false },
+                            small = true,
+                            icon = Icons.Outlined.Check
+                        )
+                        Btn(
+                            "",
+                            onClick = { editingGoal = false },
+                            variant = "ghost",
+                            small = true,
+                            icon = Icons.Outlined.Close
+                        )
                     }
                 } else {
                     Column {
@@ -306,14 +348,14 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "Saved",
+                                t("card.piggy.saved"),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = cs.onSurfaceVariant
                             )
                             if (target > 0) {
                                 Text(
-                                    "Goal: ${fmt(target, s.cur)}",
+                                    t("card.piggy.targetLabel", "amount" to fmt(target, s.cur)),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = cs.onSurfaceVariant
@@ -344,8 +386,11 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                 Spacer(Modifier.height(5.dp))
                 Text(
                     if (target > 0) {
-                        if (saved >= target) "Goal complete! 🎉" else "${fmt(target - saved, s.cur)} to go"
-                    } else "Set a goal to track progress",
+                        if (saved >= target) t("card.piggy.goalComplete") else t(
+                            "card.piggy.toGo",
+                            "amount" to fmt(target - saved, s.cur)
+                        )
+                    } else t("card.piggy.setGoalHint"),
                     fontSize = 11.sp,
                     color = cs.onSurfaceVariant,
                     maxLines = 1,
@@ -363,13 +408,35 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                             modifier = Modifier.weight(1f),
                             onDone = { vm.depositPiggy(activeId, piggyAmount); piggyAmount = ""; addOpen = false },
                         )
-                        Btn("Add", onClick = { vm.depositPiggy(activeId, piggyAmount); piggyAmount = ""; addOpen = false }, small = true)
-                        Btn("", onClick = { addOpen = false }, variant = "ghost", small = true, icon = Icons.Outlined.Close)
+                        Btn(
+                            t("card.piggy.add"),
+                            onClick = { vm.depositPiggy(activeId, piggyAmount); piggyAmount = ""; addOpen = false },
+                            small = true
+                        )
+                        Btn(
+                            "",
+                            onClick = { addOpen = false },
+                            variant = "ghost",
+                            small = true,
+                            icon = Icons.Outlined.Close
+                        )
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Btn("Add", onClick = { addOpen = true }, variant = "secondary", small = true, icon = Icons.Outlined.Add)
-                        Btn("Break", onClick = { vm.breakPiggy(activeId) }, variant = "ghost", small = true, enabled = saved > 0)
+                        Btn(
+                            t("card.piggy.add"),
+                            onClick = { addOpen = true },
+                            variant = "secondary",
+                            small = true,
+                            icon = Icons.Outlined.Add
+                        )
+                        Btn(
+                            t("card.piggy.break"),
+                            onClick = { vm.breakPiggy(activeId) },
+                            variant = "ghost",
+                            small = true,
+                            enabled = saved > 0
+                        )
                     }
                 }
             }
@@ -382,17 +449,17 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(cs.surfaceVariant)
+                    .background(innerSurfaceColor())
                     .padding(12.dp)
             ) {
                 Text(
-                    "Customize ${activePiggy.name.ifBlank { "Piggy" }}",
+                    t("card.piggy.customizeTitle", "name" to activePiggy.name.ifBlank { t("card.piggy.fallbackName") }),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = cs.onSurfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
-                FieldLabel("Picture / Icon")
+                FieldLabel(t("card.piggy.pictureIcon"))
                 val emojis = listOf("🐷", "🏖️", "✈️", "🚗", "🏠", "💻", "🎮", "🎁", "🎓", "🏝️")
                 Row(
                     Modifier
@@ -407,7 +474,11 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                                 .size(36.dp)
                                 .clip(CircleShape)
                                 .background(if (isEmoSelected) cs.primary.copy(alpha = 0.2f) else cs.surface)
-                                .border(if (isEmoSelected) 2.dp else 1.dp, if (isEmoSelected) cs.primary else cs.outlineVariant, CircleShape)
+                                .border(
+                                    if (isEmoSelected) 2.dp else 1.dp,
+                                    if (isEmoSelected) cs.primary else cs.outlineVariant,
+                                    CircleShape
+                                )
                                 .clickable { vm.updatePiggyTexture(activeId, if (emo == "🐷") null else emo) },
                             contentAlignment = Alignment.Center
                         ) {
@@ -416,9 +487,13 @@ fun PiggyCard(vm: LedgerViewModel, s: LedgerState) {
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                FieldLabel("Deposit sound")
+                FieldLabel(t("card.piggy.depositSound"))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val sounds = listOf("coin" to "Coin", "chime" to "Chime", "none" to "Mute")
+                    val sounds = listOf(
+                        "coin" to t("card.piggy.soundCoin"),
+                        "chime" to t("card.piggy.soundChime"),
+                        "none" to t("card.piggy.soundMute")
+                    )
                     sounds.forEach { (id, label) ->
                         val isSoundSelected = (activePiggy.soundId ?: "coin") == id
                         Box(

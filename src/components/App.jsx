@@ -7,19 +7,25 @@ import {
   HEAT_DEFAULT_COLORS, PREF_DEFAULTS, PRESETS,
 } from '../lib/constants';
 import {
-  addDays, advanceDate, customFontStack, dayDiff, daysInMonth, expCats,
-  firstOfMonthKey, fmt, groupLabel, loadGoogleFont, normalizeExpense, normalizeExpenses,
-  relativeDate, store, todayKey, uid,
+  addDays, advanceDate, buildCategoryMemory, cleanTags, cmpId, customFontStack, dayDiff, daysInMonth, downscaleImage, expCats,
+  firstOfMonthKey, fmt, groupLabel, loadGoogleFont, mergeCardOrder, normalizeExpense, normalizeExpenses,
+  relativeDate, spendStreaks, store, suggestCategory, todayKey, uid,
 } from '../lib/helpers';
 import {
   FIREBASE_CONFIGURED, fbInit, firestoreSafe, getFBAuth, getFBFS,
   getLastSync, sanitizePrefs, setLastSync,
 } from '../lib/firebase';
+import { setLang, t } from '../lib/i18n';
+import { fetchRate, rateDecimals } from '../lib/fx';
 import { tiltDisable, tiltEnable } from '../lib/tilt';
 import { confettiBurst, playCelebrate, playPiggySound } from '../lib/sound';
+import {
+  biometricAvailable, clearLock, getLock, registerBiometric, setLock, unlockWithBiometric, verifyPin,
+} from '../lib/lock';
 
 import TopBar from './TopBar';
 import Hero from './Hero';
+import TravelHome from './TravelHome';
 import SetupCard from './SetupCard';
 import BudgetDrawer from './BudgetDrawer';
 import MoneyDrawer from './MoneyDrawer';
@@ -27,6 +33,7 @@ import CustomizeDrawer from './CustomizeDrawer';
 import CommandPalette from './CommandPalette';
 import Confirm from './Confirm';
 import Toast from './Toast';
+import LockScreen from './LockScreen';
 import WeatherEffect from './WeatherEffect';
 import LogCard from './cards/LogCard';
 import BreakdownCard from './cards/BreakdownCard';
@@ -35,10 +42,21 @@ import HistoryCard from './cards/HistoryCard';
 import PiggyCard from './cards/PiggyCard';
 import AutoCard from './cards/AutoCard';
 import BackupCard from './cards/BackupCard';
+import InsightsCard from './cards/InsightsCard';
+import StreakCard from './cards/StreakCard';
 
 /* ═══════════════════════════════════════════
    APP
    ═══════════════════════════════════════════ */
+/* Shape-checks shared by cloud-apply and backup-import paths. */
+const isPlainObj=o=>!!o&&typeof o==='object'&&!Array.isArray(o);
+const validSettings=s=>isPlainObj(s)&&typeof s.monthlyBudget==='number'&&s.monthlyBudget>=0&&Number.isInteger(s.periodDays)&&s.periodDays>=1&&typeof s.startDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s.startDate)&&!isNaN(new Date(s.startDate+'T00:00:00').getTime());
+const validExpenses=a=>Array.isArray(a)&&a.every(e=>e&&typeof e==='object'&&Number.isFinite(e.amount)&&typeof e.date==='string'&&e.date.trim()!=='');
+const validTopUps=a=>Array.isArray(a)&&a.every(t=>t&&typeof t.amount==='number'&&typeof t.date==='string');
+const validRecurring=a=>Array.isArray(a)&&a.every(r=>r&&typeof r.amount==='number'&&typeof r.type==='string');
+const validCats=a=>Array.isArray(a)&&a.every(c=>c&&typeof c.id==='string'&&typeof c.label==='string');
+const validPiggies=a=>Array.isArray(a)&&a.every(p=>p&&typeof p==='object'&&typeof p.id==='string');
+
 export default function App(){
   const[theme,setTheme]=useState(()=>({...DEFAULT_THEME,...(store.get("ledger-theme")||{})}));
   const[prefs,setPrefs]=useState(()=>({...PREF_DEFAULTS,...(store.get("ledger-prefs")||{})}));
@@ -101,6 +119,16 @@ export default function App(){
   const[editingId,setEditingId]=useState(null);
   const fileInputRef=useRef(null);
   const addFormRef=useRef(null);
+  const[receipt,setReceipt]=useState(null);
+  const[tags,setTags]=useState([]);
+  const[receiptView,setReceiptView]=useState(null);
+
+  /* App lock — gated by the prefs toggle; a stored salted PIN hash lives in
+     localStorage (never the raw PIN). */
+  const[lockRec,setLockRec]=useState(()=>getLock());
+  const[locked,setLocked]=useState(()=>{const l=getLock();return !!(prefs.appLock&&l&&l.hash)});
+  const[lockSetup,setLockSetup]=useState(false);
+  const lockAwayRef=useRef(0);
 
   const[draftBudget,setDraftBudget]=useState("");
   const[draftDays,setDraftDays]=useState(()=>String(daysInMonth()));
@@ -116,12 +144,26 @@ export default function App(){
   const[catBudgetDraft,setCatBudgetDraft]=useState({});
 
   const today=todayKey();
+  /* Keep the i18n module's active language in step with the pref before any child
+     renders — children call t() directly rather than taking it as a prop. */
+  setLang(prefs.lang||'en');
   const cur=prefs.currency||"MYR";
   const balancesOn=prefs.balancesEnabled!==false;
   const heroMode=balancesOn?(prefs.heroMode==='balance'?'balance':'daily'):'daily';
   const MYR=useCallback(n=>fmt(n,cur),[cur]);
 
   const cats=useMemo(()=>categories.map(c=>({...c,color:theme.catColors[c.id]||'#7c8896'})),[categories,theme]);
+
+  /* Learn note→category from your own history so the auto-pick improves as you log. */
+  const catMemory=useMemo(()=>buildCategoryMemory(expenses),[expenses]);
+
+  /* Auto-pick the category from the note as you type (history-aware). */
+  const onNoteChange=v=>{
+    setNote(v);
+    if(editingId)return;
+    const s=suggestCategory(v,cats,catMemory);
+    if(s&&s!==selCats[0])setSelCats([s]);
+  };
 
   useEffect(()=>{document.body.style.background=theme.bg;document.body.style.color=theme.text},[theme]);
   useEffect(()=>{
@@ -159,7 +201,7 @@ export default function App(){
   const persistPrefs=useCallback(n=>{
     setPrefs(n);
     const ok=store.set("ledger-prefs",n);
-    if(!ok)showToast("Storage limit reached — this change works now but won't be saved after reload. Try a smaller file.","error");
+    if(!ok)showToast(t('toast.storageLimit'),"error");
   },[showToast]);
   const persistCatBudgets=useCallback(n=>{setCatBudgets(n);store.set("ledger-catbudgets",n)},[]);
   const persistTopUps=useCallback(n=>{setTopUps(n);store.set("ledger-topups",n)},[]);
@@ -188,7 +230,16 @@ export default function App(){
       }
       if(Array.isArray(data.topUps)&&data.topUps.every(t=>t&&typeof t.amount==='number'&&typeof t.date==='string')){setTopUps(data.topUps);store.set("ledger-topups",data.topUps)}
       if(data.balance&&typeof data.balance==='object'&&!Array.isArray(data.balance)&&typeof data.balance.start==='number'){setBalance(data.balance);store.set("ledger-balance",data.balance)}
-      if(Array.isArray(data.piggies)&&data.piggies.length){setPiggies(data.piggies);store.set("ledger-piggies",data.piggies)}
+      if(Array.isArray(data.piggies)&&data.piggies.length){
+        // Pushes strip device-local fields (texture / sound), so merge them back
+        // by id instead of letting the incoming copy wipe them.
+        const local=stateRef.current&&Array.isArray(stateRef.current.piggies)?stateRef.current.piggies:[];
+        const merged=data.piggies.map(p=>{
+          const prev=local.find(x=>x.id===p.id);
+          return{...p,texture:prev?prev.texture:(p.texture??null),soundId:prev?prev.soundId:(p.soundId??'coin'),soundCustom:prev?prev.soundCustom:(p.soundCustom??null)};
+        });
+        setPiggies(merged);store.set("ledger-piggies",merged);
+      }
       else if(data.piggy&&typeof data.piggy==='object'&&!Array.isArray(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number'){
         const p=[{id:'p1',name:'Piggy bank',target:data.piggy.target||0,saved:data.piggy.saved||0,texture:null,soundId:'coin',soundCustom:null}];
         setPiggies(p);store.set("ledger-piggies",p);
@@ -205,7 +256,7 @@ export default function App(){
           else if(k==='heroMode')next[k]=data.prefs[k]==='balance'?'balance':'daily'
           else if(k==='balancesEnabled')next[k]=!!data.prefs[k]
           else if(k==='piggySound')next[k]=!!data.prefs[k]
-          else if(k==='wallpaper'||k==='wallpaperDim'||k==='wallBlur'||k==='cardPanel'||k==='cardPanelOpacity'||k==='piggyTexture'||k==='piggySoundCustom'){/* device-local — never apply from the cloud */}
+          else if(k==='wallpaper'||k==='wallpaperDim'||k==='wallBlur'||k==='cardPanel'||k==='cardPanelOpacity'||k==='piggyTexture'||k==='piggySoundCustom'||k==='appLock'){/* device-local — never apply from the cloud */}
           else next[k]=data.prefs[k];
         }
         for(const k of ['pieThickness','pieGap','uiBlur','uiOpacity','wallBlur','cardPanelOpacity','wallpaperDim','weatherSpeed']){
@@ -246,12 +297,13 @@ export default function App(){
       };
       const json=JSON.stringify(payload);
       if(json===lastPushedJsonRef.current)return; // nothing changed since the last write — skip
-      lastPushedJsonRef.current=json;
       // Server timestamps keep ordering consistent across devices (client clocks can drift).
       // NOTE: never pass this sentinel through firestoreSafe — it would be
       // flattened into a plain object and stored as garbage.
       payload.updatedAt=firebase.firestore.FieldValue.serverTimestamp();
-      getFBFS().doc('ledger/'+uid).set(payload).then(()=>{setSyncError(false);setSyncErrorMsg("");setLastSyncedAt(Date.now())}).catch(e=>{console.warn("Sync push failed:",e);setSyncError(true);setSyncErrorMsg(String(e&&e.message||e))});
+      getFBFS().doc('ledger/'+uid).set(payload)
+        .then(()=>{lastPushedJsonRef.current=json;setSyncError(false);setSyncErrorMsg("");setLastSyncedAt(Date.now())})
+        .catch(e=>{lastPushedJsonRef.current=null;console.warn("Sync push failed:",e);setSyncError(true);setSyncErrorMsg(String(e&&e.message||e))});
     }catch(e){console.warn("Sync push failed:",e);setSyncError(true);setSyncErrorMsg(String(e&&e.message||e))}
   },[]);
 
@@ -293,7 +345,13 @@ export default function App(){
           // Support both server timestamps and the old numeric format.
           const remoteAt=at&&typeof at.toMillis==='function'?at.toMillis():(typeof at==='number'?at:0);
           if(remoteAt>last){
-            if(cloudLooksDefault&&localHasData){
+            if(last===0&&localHasData&&!cloudLooksDefault){
+              // First time linking this device with real data on both sides —
+              // never silently clobber this device's copy. Keep local and push it.
+              pushSync(uid);
+              setLastSync(uid,remoteAt); // remember so we don't repeat the toast
+              showToast(t('toast.keptDeviceData'),"success");
+            }else if(cloudLooksDefault&&localHasData){
               // The cloud copy is an empty/default state (e.g. seeded before setup).
               // Never let it replace real local data — push the real copy up instead.
               pushSync(uid);
@@ -302,7 +360,7 @@ export default function App(){
               applyRemote(data);
               setLastSync(uid,remoteAt);
               setLastSyncedAt(remoteAt);
-              if(last===0)showToast("Synced from cloud.","success"); // announce the first pull only, not our own echoes
+              if(last===0)showToast(t('toast.syncedFromCloud'),"success"); // announce the first pull only, not our own echoes
             }
           }else if(remoteAt===0){
             // Unreadable timestamp — docs written by an earlier buggy build stored
@@ -333,41 +391,85 @@ export default function App(){
   },[expenses,topUps,balance,piggies,recurring,settings,categories,catBudgets,prefs,theme,authUser,pushSync]);
 
   const signInGoogle=async()=>{
-    if(!FIREBASE_CONFIGURED){showToast("Sync isn't configured yet — see the Sync section in settings.","error");return}
-    if(!fbInit()){showToast("Couldn't load Firebase — check your internet connection and reload.","error");return}
+    if(!FIREBASE_CONFIGURED){showToast(t('toast.syncNotConfigured'),"error");return}
+    if(!fbInit()){showToast(t('toast.firebaseLoadFailed'),"error");return}
     try{
       const provider=new firebase.auth.GoogleAuthProvider();
       await getFBAuth().signInWithPopup(provider);
-      showToast("Signed in — syncing is on. Change something to push your data.","success");
+      showToast(t('toast.signedIn'),"success");
     }catch(err){
       const code=err&&err.code;
       if(code==='auth/popup-closed-by-user'){
-        showToast("Sign-in cancelled.","info");
+        showToast(t('toast.signInCancelled'),"info");
       }else if(code==='auth/popup-blocked'||code==='auth/cancelled-popup-request'){
-        showToast("Popup blocked — allow popups for this page and try again.","error");
+        showToast(t('toast.popupBlocked'),"error");
       }else if(code==='auth/unauthorized-domain'){
-        showToast("This domain isn't authorized — add it in Firebase console → Authentication → Settings → Authorized domains.","error");
+        showToast(t('toast.domainUnauthorized'),"error");
       }else if(code==='auth/operation-not-supported-in-this-environment'){
-        showToast("Google sign-in needs http(s) hosting — serve this file from a local server or a host.","error");
+        showToast(t('toast.needsHosting'),"error");
       }else{
-        showToast(err&&err.message?err.message:"Sign-in failed.","error");
+        showToast(err&&err.message?err.message:t('toast.signInFailed'),"error");
       }
     }
   };
   const signOutGoogle=async()=>{
-    try{await getFBAuth().signOut();showToast("Signed out. Changes stay on this device.","info")}
-    catch(e){showToast("Sign out failed.","error")}
+    try{await getFBAuth().signOut();showToast(t('toast.signedOut'),"info")}
+    catch(e){showToast(t('toast.signOutFailed'),"error")}
+  };
+
+  const requestNotifyPermission=async()=>{
+    if(typeof Notification==='undefined'){showToast(t('toast.noNotificationSupport'),"error");return}
+    try{
+      const perm=await Notification.requestPermission();
+      showToast(perm==='granted'?t('toast.notificationsEnabled'):t('toast.notificationsNotEnabled'),perm==='granted'?"success":"info");
+    }catch(e){showToast(t('toast.notificationFailed'),"error")}
+  };
+
+  /* ─── App lock handlers ─── */
+  const handleUnlock=async pin=>{
+    const ok=await verifyPin(pin);
+    if(ok){setLocked(false);showToast(t('toast.unlocked'),"success")}
+    return ok;
+  };
+  const handleSetPin=async pin=>{
+    const rec=await setLock(pin);
+    setLockRec(rec);setLockSetup(false);setLocked(false);
+    persistPrefs({...prefs,appLock:true});
+    showToast(t('toast.appLockEnabled'),"success");
+  };
+  const handleToggleAppLock=()=>{
+    if(prefs.appLock){persistPrefs({...prefs,appLock:false});setLocked(false);return}
+    if(getLock()&&getLock().hash){persistPrefs({...prefs,appLock:true});return} // takes effect on next load/resume
+    setLockSetup(true); // no PIN yet — create one before enabling
+  };
+  const handleBiometric=async()=>{
+    try{
+      const rec=getLock();
+      if(rec&&rec.biometric)await unlockWithBiometric();
+      else await registerBiometric();
+      setLockRec(getLock());setLocked(false);showToast(t('toast.unlocked'),"success");
+      return true;
+    }catch(e){showToast(t('toast.deviceUnlockUnavailable'),"error");return false}
+  };
+  const handleSetupBiometric=async()=>{
+    try{await registerBiometric();setLockRec(getLock());showToast(t('toast.deviceUnlockEnabled'),"success")}
+    catch(e){showToast(t('toast.deviceUnlockSetupFailed'),"error")}
+  };
+  const handleForgotPin=()=>{
+    clearLock();setLockRec(null);setLocked(false);setLockSetup(false);
+    persistPrefs({...prefs,appLock:false});
+    showToast(t('toast.appLockRemoved'),"info");
   };
 
   /* ─── Setup ─── */
   const saveSetup=()=>{
     const budget=parseFloat(draftBudget);
     const days=parseInt(draftDays,10);
-    if(!isFinite(budget)||budget<0||!days||days<=0){showToast("Enter a valid amount and period.","error");return}
+    if(!isFinite(budget)||budget<0||!days||days<=0){showToast(t('toast.invalidBudget'),"error");return}
     let bal=null;
     if(balancesOn){
       bal=draftBalance.trim()===''?null:parseFloat(draftBalance);
-      if(bal!==null&&(!isFinite(bal)||bal<0)){showToast("Enter a valid balance.","error");return}
+      if(bal!==null&&(!isFinite(bal)||bal<0)){showToast(t('toast.invalidBalance'),"error");return}
     }
     persistSettings({monthlyBudget:budget,periodDays:days,startDate:draftStartDate||firstOfMonthKey()});
     if(!settings)persistPrefs({...prefs,currency:draftCurrency});
@@ -376,7 +478,7 @@ export default function App(){
       else if(!settings)persistBalance({...balance,start:0});
     }
     setShowSetup(false);
-    showToast(settings?"Budget updated.":"Budget saved. Start tracking!","success");
+    showToast(settings?t('toast.budgetUpdated'):t('toast.budgetSaved'),"success");
   };
 
   /* ─── Move money & balance ─── */
@@ -416,54 +518,95 @@ export default function App(){
     let banked=0;
     for(const c of dayCells){
       if(c.isFuture)break;
-      const left=dailyBudget-c.spent;
+      // The allowance in effect on that day: top-ups dated after it don't
+      // retroactively rewrite what was already saved.
+      const topped=topUps.reduce((s,t)=>s+(t.date<=c.date?t.amount:0),0);
+      const allowance=(settings.monthlyBudget+topped)/settings.periodDays;
+      const left=allowance-c.spent;
       // Overspends either drain the bank balance (bank the negative leftover) or come
       // out of the total budget (bank only the positive leftover), per prefs.
       banked+=prefs.overspendFromBalance?left:Math.max(0,left);
     }
     return banked;
-  },[settings,dayCells,dailyBudget,prefs.overspendFromBalance]);
+  },[settings,dayCells,topUps,prefs.overspendFromBalance]);
   const bankBalance=useMemo(()=>(balance?.start||0)-topUpTotal+bankedSoFar,[balance,topUpTotal,bankedSoFar]);
   const todaySaved=Math.max(0,todayRemaining);
-  const heroLabel=heroMode==='balance'?"Balance":"Available today";
+  const heroLabel=heroMode==='balance'?t('hero.labelBalance'):t('hero.labelAvailable');
   const heroValue=heroMode==='balance'?bankBalance:todayRemaining;
   const periodSpent=useMemo(()=>dayCells.filter(c=>!c.isFuture).reduce((s,c)=>s+c.spent,0),[dayCells]);
   const budgetPctFull=effectiveMonthlyBudget>0?Math.min(100,(periodSpent/effectiveMonthlyBudget)*100):0;
 
+  /* ─── Budget threshold alerts — 80% / 100%, fired at most once per period ─── */
+  const firedAlertsRef=useRef(null);
+  if(firedAlertsRef.current===null)firedAlertsRef.current=store.get("ledger-alerts")||{};
+  useEffect(()=>{
+    if(!settings||prefs.budgetAlerts===false)return;
+    const periodKey=`${settings.startDate}|${settings.periodDays}`;
+    const fired=firedAlertsRef.current;
+    const slot=fired[periodKey]||(fired[periodKey]={});
+    const periodEnd=addDays(settings.startDate,settings.periodDays-1);
+    const catTotals={};
+    for(const e of expenses){
+      if(e.date<settings.startDate||e.date>periodEnd)continue;
+      for(const c of expCats(e))catTotals[c]=(catTotals[c]||0)+e.amount;
+    }
+    const msgs=[];let over=false;
+    const check=(key,label,spent,budget)=>{
+      if(!(budget>0))return;
+      const pct=(spent/budget)*100;
+      const rec=slot[key]||(slot[key]={});
+      for(const th of [80,100]){
+        if(pct>=th&&!rec[th]){
+          rec[th]=true;
+          if(th>=100){over=true;msgs.push(t('toast.alertOver',{label,pct:Math.round(pct)}))}
+          else msgs.push(t('toast.alertAt',{label,pct:Math.round(pct)}));
+        }
+      }
+    };
+    check('__monthly__',t('setup.monthlyBudget'),periodSpent,effectiveMonthlyBudget);
+    for(const c of cats)check(`cat:${c.id}`,t('toast.categoryBudgetLabel',{label:c.label}),catTotals[c.id]||0,catBudgets[c.id]);
+    if(msgs.length){
+      store.set("ledger-alerts",fired);
+      showToast(msgs.join(' '),over?'error':'warning');
+      try{if(typeof Notification!=='undefined'&&Notification.permission==='granted')new Notification(t('toast.alertTitle'),{body:msgs.join(' ')})}catch(e){/* notifications are best-effort */}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[expenses,catBudgets,cats,settings,topUps,prefs.budgetAlerts,periodSpent,effectiveMonthlyBudget]);
+
   const addTopUp=()=>{
     const val=parseFloat(topUpAmount);
-    if(!val||val<=0){showToast(balancesOn?"Enter a valid amount.":"Enter a valid top-up amount.","error");return}
-    if(balancesOn&&val>bankBalance){showToast(`Not enough balance — move at most ${MYR(bankBalance)}.`,"error");return}
+    if(!val||val<=0){showToast(balancesOn?t('toast.invalidAmount'):t('toast.invalidTopUp'),"error");return}
+    if(balancesOn&&val>bankBalance){showToast(t('toast.notEnoughBalanceMove',{amount:MYR(bankBalance)}),"error");return}
     const entry={id:uid(),amount:val,date:today,note:topUpNote.trim()};
     persistTopUps([...topUps,entry]);
     setTopUpAmount("");setTopUpNote("");setShowTopUp(false);
-    showToast(balancesOn?`Moved ${MYR(val)} from your balance to this month's budget.`:`Topped up ${MYR(val)} — added to your monthly budget.`,"success");
+    showToast(balancesOn?t('toast.movedToBudget',{amount:MYR(val)}):t('toast.toppedUp',{amount:MYR(val)}),"success");
   };
   const addToBalance=()=>{
     const val=parseFloat(topUpAmount);
-    if(!val||val<=0){showToast("Enter a valid amount.","error");return}
+    if(!val||val<=0){showToast(t('toast.invalidAmount'),"error");return}
     persistBalance({...balance,start:(balance?.start||0)+val});
     setTopUpAmount("");setTopUpNote("");setShowTopUp(false);
-    showToast(`Added ${MYR(val)} to your balance.`,"success");
+    showToast(t('toast.addedToBalance',{amount:MYR(val)}),"success");
   };
   const returnToBalance=()=>{
     const val=parseFloat(topUpAmount);
-    if(!val||val<=0){showToast("Enter a valid amount.","error");return}
-    if(topUpTotal<=0){showToast("Nothing to return — you haven't moved money to the budget. Please move some first.","error");return}
-    if(val>topUpTotal){showToast(`Can't return more than the ${MYR(topUpTotal)} you moved to the budget.`,"error");return}
+    if(!val||val<=0){showToast(t('toast.invalidAmount'),"error");return}
+    if(topUpTotal<=0){showToast(t('toast.nothingToReturn'),"error");return}
+    if(val>topUpTotal){showToast(t('toast.returnTooMuch',{amount:MYR(topUpTotal)}),"error");return}
     const entry={id:uid(),amount:-val,date:today,note:topUpNote.trim()};
     persistTopUps([...topUps,entry]);
     setTopUpAmount("");setTopUpNote("");setShowTopUp(false);
-    showToast(`Returned ${MYR(val)} from your budget to your balance.`,"success");
+    showToast(t('toast.returned',{amount:MYR(val)}),"success");
   };
   const withdrawFromBalance=()=>{
     const val=parseFloat(topUpAmount);
-    if(!val||val<=0){showToast("Enter a valid amount.","error");return}
-    if(bankBalance<=0){showToast("Nothing to withdraw — your balance is empty. Move money into it first.","error");return}
-    if(val>bankBalance){showToast(`Not enough balance — withdraw at most ${MYR(bankBalance)}.`,"error");return}
+    if(!val||val<=0){showToast(t('toast.invalidAmount'),"error");return}
+    if(bankBalance<=0){showToast(t('toast.nothingToWithdraw'),"error");return}
+    if(val>bankBalance){showToast(t('toast.notEnoughBalanceWithdraw',{amount:MYR(bankBalance)}),"error");return}
     persistBalance({...balance,start:(balance?.start||0)-val});
     setTopUpAmount("");setTopUpNote("");setShowTopUp(false);
-    showToast(`Withdrew ${MYR(val)} from your balance.`,"success");
+    showToast(t('toast.withdrew',{amount:MYR(val)}),"success");
   };
   const submitMoney=()=>{
     if(moveMode==='budget')return addTopUp();
@@ -472,10 +615,10 @@ export default function App(){
     return addToBalance();
   };
   const removeTopUp=id=>{
-    const removed=topUps.find(t=>t.id===id);
-    persistTopUps(topUps.filter(t=>t.id!==id));
-    if(removed)showToast("Transfer removed.","info",{
-      label:"Undo",run:()=>{persistTopUps([...topUps.filter(t=>t.id!==id),removed]);showToast("Restored.","success")}
+    const removed=topUps.find(x=>x.id===id);
+    persistTopUps(topUps.filter(x=>x.id!==id));
+    if(removed)showToast(t('toast.transferRemoved'),"info",{
+      label:t('toast.actionUndo'),run:()=>{persistTopUps([...topUps.filter(x=>x.id!==id),removed]);showToast(t('toast.restored'),"success")}
     });
   };
 
@@ -494,24 +637,24 @@ export default function App(){
     const next=[...piggies,newPiggy];
     persistPiggies(next);
     setActivePiggyId(newId);
-    showToast(`Created "${newPiggy.name}".`,"success");
+    showToast(t('toast.piggyCreated',{name:newPiggy.name}),"success");
   };
 
   const renamePiggy=(id,newName)=>{
     const next=piggies.map(p=>p.id===id?{...p,name:newName.trim()||p.name}:p);
     persistPiggies(next);
-    showToast("Piggy bank renamed.","success");
+    showToast(t('toast.piggyRenamed'),"success");
   };
 
   const savePiggyTarget=(id,targetVal)=>{
     const next=piggies.map(p=>p.id===id?{...p,target:targetVal}:p);
     persistPiggies(next);
-    showToast(targetVal>0?`Savings goal set to ${MYR(targetVal)}.`:"Savings goal cleared.","success");
+    showToast(targetVal>0?t('toast.goalSet',{amount:MYR(targetVal)}):t('toast.goalCleared'),"success");
   };
 
   const depositPiggy=(id,amountVal)=>{
-    if(!amountVal||amountVal<=0){showToast("Enter a valid amount.","error");return}
-    if(amountVal>bankBalance){showToast(`Not enough balance — add at most ${MYR(bankBalance)}.`,"error");return}
+    if(!amountVal||amountVal<=0){showToast(t('toast.invalidAmount'),"error");return}
+    if(amountVal>bankBalance){showToast(t('toast.notEnoughBalanceAdd',{amount:MYR(bankBalance)}),"error");return}
     const targetPiggy=piggies.find(p=>p.id===id)||piggies[0];
     const prev=targetPiggy.saved||0;
     const saved=prev+amountVal;
@@ -521,40 +664,40 @@ export default function App(){
     if(targetPiggy.soundId!=='none'){
       playPiggySound(targetPiggy.soundId||'coin',targetPiggy.soundCustom);
     }
-    showToast(`Added ${MYR(amountVal)} to ${targetPiggy.name}.`,"success");
+    showToast(t('toast.addedToPiggy',{amount:MYR(amountVal),name:targetPiggy.name}),"success");
     if(targetPiggy.target>0&&prev<targetPiggy.target&&saved>=targetPiggy.target){
       confettiBurst();
       playCelebrate();
-      showToast(`Goal complete for "${targetPiggy.name}" — confetti! 🎉`,"success");
+      showToast(t('toast.goalComplete',{name:targetPiggy.name}),"success");
     }
   };
 
   const breakPiggy=(id)=>{
     const targetPiggy=piggies.find(p=>p.id===id)||piggies[0];
     const savedAmt=targetPiggy.saved||0;
-    if(savedAmt<=0){showToast(`${targetPiggy.name} is empty.`,"error");return}
+    if(savedAmt<=0){showToast(t('toast.piggyEmpty',{name:targetPiggy.name}),"error");return}
     setConfirm({
-      title:`Break "${targetPiggy.name}"?`,
-      msg:`All ${MYR(savedAmt)} moves back to your balance.`,
+      title:t('confirm.breakPiggy',{name:targetPiggy.name}),
+      msg:t('confirm.breakPiggyMsg',{amount:MYR(savedAmt)}),
       onConfirm:()=>{
         persistBalance({...balance,start:(balance?.start||0)+savedAmt});
         const next=piggies.map(p=>p.id===targetPiggy.id?{...p,saved:0}:p);
         persistPiggies(next);
         setConfirm(null);
-        showToast(`Broke ${targetPiggy.name} — ${MYR(savedAmt)} back to your balance.`,"success");
+        showToast(t('toast.brokePiggy',{name:targetPiggy.name,amount:MYR(savedAmt)}),"success");
       },
       onCancel:()=>setConfirm(null)
     });
   };
 
   const deletePiggy=(id)=>{
-    if(piggies.length<=1){showToast("Cannot delete the only piggy bank.","error");return}
+    if(piggies.length<=1){showToast(t('toast.cannotDeleteOnlyPiggy'),"error");return}
     const targetPiggy=piggies.find(p=>p.id===id);
     if(!targetPiggy)return;
     const savedAmt=targetPiggy.saved||0;
     setConfirm({
-      title:`Delete "${targetPiggy.name}"?`,
-      msg:savedAmt>0?`All ${MYR(savedAmt)} saved in this piggy bank will move back to your balance.`:`Are you sure you want to delete "${targetPiggy.name}"?`,
+      title:t('confirm.deletePiggy',{name:targetPiggy.name}),
+      msg:savedAmt>0?t('confirm.deletePiggySaved',{amount:MYR(savedAmt)}):t('confirm.deletePiggySure',{name:targetPiggy.name}),
       onConfirm:()=>{
         if(savedAmt>0){
           persistBalance({...balance,start:(balance?.start||0)+savedAmt});
@@ -563,7 +706,7 @@ export default function App(){
         if(activePiggyId===id)setActivePiggyId(next[0].id);
         persistPiggies(next);
         setConfirm(null);
-        showToast(`Deleted "${targetPiggy.name}".`,"success");
+        showToast(t('toast.piggyDeleted',{name:targetPiggy.name}),"success");
       },
       onCancel:()=>setConfirm(null)
     });
@@ -603,26 +746,26 @@ export default function App(){
     });
     if(changed){
       persistExpenses(ex);persistTopUps(tu);persistBalance({...balance,start});persistRecurring(next);
-      showToast("Automated entries added.","success");
+      showToast(t('toast.automatedEntries'),"success");
     }
   };
   useEffect(()=>{runRecurring()},[]); // materialize any due recurring entries on load
   const addAutomation=()=>{
     const val=parseFloat(autoAmount);
-    if(!val||val<=0){showToast("Enter a valid amount.","error");return}
-    if(!autoStart){showToast("Pick a start date.","error");return}
+    if(!val||val<=0){showToast(t('toast.invalidAmount'),"error");return}
+    if(!autoStart){showToast(t('toast.pickStartDate'),"error");return}
     const rule={id:uid(),type:autoType,amount:val,category:autoType==='expense'?autoCat:'',note:autoNote.trim(),freq:autoFreq,start:autoStart||today,last:null,active:true};
     const next=[...recurring,rule];
     persistRecurring(next);
     setAutoAmount("");setAutoNote("");
-    showToast("Automation added.","success");
+    showToast(t('toast.automationAdded'),"success");
     runRecurring(next); // backfill any occurrences up to today
   };
   const removeAutomation=id=>{
     const removed=recurring.find(r=>r.id===id);
     persistRecurring(recurring.filter(r=>r.id!==id));
-    if(removed)showToast("Automation removed.","info",{
-      label:"Undo",run:()=>{persistRecurring([...recurring.filter(r=>r.id!==id),removed]);showToast("Restored.","success")}
+    if(removed)showToast(t('toast.automationRemoved'),"info",{
+      label:t('toast.actionUndo'),run:()=>{persistRecurring([...recurring.filter(r=>r.id!==id),removed]);showToast(t('toast.restored'),"success")}
     });
   };
   const toggleAutomation=r=>{
@@ -631,11 +774,11 @@ export default function App(){
     if(next.active)runRecurring(recurring.map(x=>x.id===r.id?next:x));
   };
   const nextRun=r=>{
-    if(!r.active)return"Paused";
+    if(!r.active)return t('card.auto.paused');
     const from=r.last?todayKey(advanceDate(r.last,r.freq)):(r.start||today);
     const diff=dayDiff(today,from);
-    if(diff<=0)return"Due today";
-    return diff===1?"Tomorrow":`in ${diff}d`;
+    if(diff<=0)return t('card.auto.dueToday');
+    return diff===1?t('card.auto.tomorrow'):t('card.auto.inDays',{n:diff});
   };
 
   const avgDailySpend=useMemo(()=>{
@@ -665,6 +808,111 @@ export default function App(){
     for(const cell of[...dayCells].filter(x=>!x.isFuture).reverse()){if(cell.delta>=0)c++;else break}
     return c;
   },[dayCells,settings]);
+
+  /* ─── Daily spend streak (log a spend every day) ─── */
+  const {current:spendStreak,best:bestStreak,loggedToday}=useMemo(()=>spendStreaks(expenses,today,prefs.streakGrace||0),[expenses,today,prefs.streakGrace]);
+
+  /* ─── Travel mode ───
+     While a trip is active the dashboard is replaced by a travel home page. Entries
+     are entered in the foreign currency but always stored with their home-currency
+     amount, so every budget and statistic keeps working unchanged. */
+  const travel=prefs.travel||{};
+  const travelRate=Number(travel.rate)>0?Number(travel.rate):0;
+  const travelActive=!!(travel.active&&travel.currency);
+  const travelList=useMemo(()=>{
+    if(!travelActive)return [];
+    return expenses.filter(e=>(e.tags||[]).includes('travel')&&(!travel.start||e.date>=travel.start));
+  },[expenses,travelActive,travel.start]);
+
+  /* Every currency used on this trip with its own subtotal. Entries keep the currency they
+     were logged in, so changing the trip's currency never rewrites the older ones. */
+  const travelByCurrency=useMemo(()=>{
+    const map=new Map();
+    for(const e of travelList){
+      const code=e.currency||travel.currency;
+      const row=map.get(code)||{code,foreign:0,home:0,count:0};
+      row.foreign+=typeof e.foreignAmount==='number'?e.foreignAmount:e.amount;
+      row.home+=e.amount;row.count++;
+      map.set(code,row);
+    }
+    return [...map.values()].sort((a,b)=>b.home-a.home);
+  },[travelList,travel.currency]);
+
+  /* ─── Exchange-rate sync ───
+     Pulls the current market rate when a trip starts and whenever either currency changes
+     (or on demand from the Travel tab). Refreshing only affects *future* entries — every
+     logged spend keeps the home-currency amount it was recorded with. */
+  const[rateStatus,setRateStatus]=useState('');
+  const rateKeyRef=useRef('');
+  const refreshTravelRate=useCallback(async()=>{
+    const tr=prefsRef.current.travel||{};
+    if(!tr.active||!tr.currency){setRateStatus('');return}
+    setRateStatus('loading');
+    try{
+      const {rate,date}=await fetchRate(tr.currency,prefsRef.current.currency||'MYR');
+      persistPrefs({...prefsRef.current,travel:{...tr,rate,rateUpdatedAt:date}});
+      setRateStatus(date?`ok:${date}`:'ok');
+    }catch(err){
+      rateKeyRef.current='';
+      setRateStatus('error');
+    }
+  },[persistPrefs]);
+  useEffect(()=>{
+    const tr=prefs.travel||{};
+    if(!travelActive||!tr.currency||tr.rateAuto===false)return;
+    const key=`${tr.currency}>${prefs.currency}`;
+    if(rateKeyRef.current===key)return;
+    rateKeyRef.current=key;
+    refreshTravelRate();
+  },[travelActive,prefs.travel&&prefs.travel.currency,prefs.currency,prefs.travel&&prefs.travel.rateAuto,refreshTravelRate]);
+
+  /* Ending a trip changes nothing about the entries — confirm first so it isn't a surprise. */
+  const endTravel=()=>setConfirm({
+    title:t('confirm.endTripTitle'),
+    msg:t('confirm.endTripMsg'),
+    danger:false,
+    onConfirm:()=>{persistPrefs({...prefs,travel:{...travel,active:false}});setConfirm(null);showToast(t('toast.tripEnded'),"info")},
+    onCancel:()=>setConfirm(null),
+  });
+
+  /* ─── Monthly insights (calendar month over month) ─── */
+  const monthInsights=useMemo(()=>{
+    const t=new Date(today+"T00:00:00");
+    const curStart=firstOfMonthKey(t);
+    const daysThis=daysInMonth(t);
+    const curEnd=addDays(curStart,daysThis-1);
+    const prevDate=new Date(t.getFullYear(),t.getMonth()-1,1);
+    const prevStart=firstOfMonthKey(prevDate);
+    const prevEnd=addDays(prevStart,daysInMonth(prevDate)-1);
+    let thisTotal=0,lastTotal=0;
+    const thisCat={},lastCat={},byDay={};
+    for(const e of expenses){
+      if(e.date>=curStart&&e.date<=curEnd){
+        thisTotal+=e.amount;byDay[e.date]=(byDay[e.date]||0)+e.amount;
+        for(const c of expCats(e))thisCat[c]=(thisCat[c]||0)+e.amount;
+      }else if(e.date>=prevStart&&e.date<=prevEnd){
+        lastTotal+=e.amount;
+        for(const c of expCats(e))lastCat[c]=(lastCat[c]||0)+e.amount;
+      }
+    }
+    const dayN=t.getDate();
+    const avg=thisTotal/Math.max(1,dayN);
+    const projected=avg*daysThis;
+    const pct=lastTotal>0?((thisTotal-lastTotal)/lastTotal)*100:null;
+    let biggest=null;
+    for(const c of cats){
+      const delta=(thisCat[c.id]||0)-(lastCat[c.id]||0);
+      if(!biggest||Math.abs(delta)>Math.abs(biggest.delta))biggest={cat:c,delta};
+    }
+    let best=null,worst=null;
+    for(let i=0;i<dayN;i++){
+      const d=addDays(curStart,i);
+      const v=byDay[d]||0;
+      if(!worst||v>worst.amount)worst={date:d,amount:v};
+      if(!best||v<best.amount)best={date:d,amount:v};
+    }
+    return{thisTotal,lastTotal,pct,avg,projected,daysElapsed:dayN,daysInMonth:daysThis,best,worst,biggest};
+  },[expenses,cats,today]);
 
   /* ─── Breakdown ─── */
   const[overviewRange,setOverviewRange]=useState("period");
@@ -705,7 +953,7 @@ export default function App(){
     let top=null;for(const c of cats)if(!top||categoryTotals[c.id]>categoryTotals[top.id])top=c;
     return top&&categoryTotals[top.id]>0?top:null;
   },[cats,categoryTotals]);
-  const rangeLabel={period:"this budget period",week:"the last 7 days",month:"this calendar month",all:"all logged history",custom:"the selected range"}[overviewRange];
+  const rangeLabel={period:t('card.breakdown.rangeLabelPeriod'),week:t('card.breakdown.rangeLabelWeek'),month:t('card.breakdown.rangeLabelMonth'),all:t('card.breakdown.rangeLabelAll'),custom:t('card.breakdown.rangeLabelCustom')}[overviewRange];
 
   const pieSlices=useMemo(()=>{
     const pool=Object.values(categoryTotals).reduce((a,b)=>a+b,0);
@@ -796,38 +1044,43 @@ export default function App(){
 
   /* ─── History ─── */
   const[filterCats,setFilterCats]=useState([]);
+  const[filterTags,setFilterTags]=useState([]);
   const[showFilters,setShowFilters]=useState(false);
   const[historySort,setHistorySort]=useState("date-desc");
   const[historySearch,setHistorySearch]=useState("");
   const[dateFrom,setDateFrom]=useState("");
   const[dateTo,setDateTo]=useState("");
   const toggleFilterCat=id=>setFilterCats(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const toggleFilterTag=t=>setFilterTags(p=>p.includes(t)?p.filter(x=>x!==t):[...p,t]);
+  /* Every tag currently in use, for the History filter row. */
+  const allTags=useMemo(()=>[...new Set(expenses.flatMap(e=>e.tags||[]))].sort(),[expenses]);
   const historyList=useMemo(()=>{
     let list=[
       ...expenses.map(e=>({...e,type:'expense'})),
       ...topUps.map(t=>({...t,type:'topup'})),
     ];
     if(filterCats.length)list=list.filter(e=>e.type==='expense'&&expCats(e).some(c=>filterCats.includes(c)));
+    if(filterTags.length)list=list.filter(e=>e.type==='expense'&&(e.tags||[]).some(t=>filterTags.includes(t)));
     if(historySearch.trim()){
       const q=historySearch.trim().toLowerCase();
       list=list.filter(e=>e.type==='topup'
         ?((e.note||'').toLowerCase().includes(q)||'move to budget'.includes(q)||'top up'.includes(q)||'return to balance'.includes(q))
-        :(e.note.toLowerCase().includes(q)||expCats(e).some(c=>c.toLowerCase().includes(q))));
+        :((e.note||'').toLowerCase().includes(q)||expCats(e).some(c=>c.toLowerCase().includes(q))||(e.tags||[]).some(t=>t.toLowerCase().includes(q))));
     }
     if(dateFrom)list=list.filter(e=>e.date>=dateFrom);
     if(dateTo)list=list.filter(e=>e.date<=dateTo);
     switch(historySort){
-      case"date-asc":list.sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:a.id-b.id));break;
+      case"date-asc":list.sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:cmpId(a,b)));break;
       case"amount-desc":list.sort((a,b)=>b.amount-a.amount);break;
       case"amount-asc":list.sort((a,b)=>a.amount-b.amount);break;
-      default:list.sort((a,b)=>(a.date<b.date?1:a.date>b.date?-1:b.id-a.id));
+      default:list.sort((a,b)=>(a.date<b.date?1:a.date>b.date?-1:cmpId(b,a)));
     }
     return list;
-  },[expenses,topUps,filterCats,historySearch,dateFrom,dateTo,historySort]);
+  },[expenses,topUps,filterCats,filterTags,historySearch,dateFrom,dateTo,historySort]);
   const historySpentTotal=useMemo(()=>historyList.filter(e=>e.type!=='topup').reduce((s,e)=>s+e.amount,0),[historyList]);
   const historyToppedTotal=useMemo(()=>historyList.filter(e=>e.type==='topup').reduce((s,e)=>s+e.amount,0),[historyList]);
-  const activeFilterCount=(historySearch.trim()?1:0)+(dateFrom||dateTo?1:0)+(historySort!=="date-desc"?1:0)+(filterCats.length?1:0);
-  const resetFilters=()=>{setFilterCats([]);setHistorySearch("");setDateFrom("");setDateTo("");setHistorySort("date-desc")};
+  const activeFilterCount=(historySearch.trim()?1:0)+(dateFrom||dateTo?1:0)+(historySort!=="date-desc"?1:0)+(filterCats.length?1:0)+(filterTags.length?1:0);
+  const resetFilters=()=>{setFilterCats([]);setFilterTags([]);setHistorySearch("");setDateFrom("");setDateTo("");setHistorySort("date-desc")};
 
   // Group history by date bucket
   const groupedHistory=useMemo(()=>{
@@ -842,41 +1095,85 @@ export default function App(){
   },[historyList,prefs.groupHistory,historySort,today]);
 
   /* ─── CRUD ─── */
+  const attachReceipt=async file=>{
+    if(!file)return;
+    if(!file.type.startsWith("image/")){showToast(t('toast.chooseImage'),"error");return}
+    if(file.size>10*1024*1024){showToast(t('toast.imageTooLarge10'),"error");return}
+    try{setReceipt(await downscaleImage(file,600,0.6));showToast(t('toast.receiptAttached'),"success")}
+    catch(err){showToast(t('toast.unreadableImage'),"error")}
+  };
+  const removeReceipt=()=>setReceipt(null);
+
+  /* ─── Tags ─── */
+  const addTag=v=>{
+    const t=cleanTags([v])[0];
+    if(!t)return;
+    setTags(prev=>prev.includes(t)?prev:[...prev,t].slice(0,8));
+  };
+  const removeTag=t=>setTags(prev=>prev.filter(x=>x!==t));
+
   const addExpense=()=>{
-    const val=parseFloat(amount);if(!val||val<=0)return;
+    const raw=parseFloat(amount);if(!raw||raw<=0)return;
     const cat=selCats[0]||"food";
-    const entry={id:uid(),date:entryDate||today,amount:val,categories:[cat],category:cat,note:note.trim()};
+    /* In travel mode the typed figure is the foreign amount; `amount` always stores
+       the home-currency equivalent so budgets stay comparable. */
+    const val=travelActive&&travelRate>0?raw*travelRate:raw;
+    const entry={
+      id:uid(),date:entryDate||today,amount:val,categories:[cat],category:cat,note:note.trim(),receipt:receipt||null,
+      tags:travelActive?cleanTags([...tags,'travel',travel.name||'']):tags,
+      ...(travelActive?{currency:travel.currency,foreignAmount:raw}:{}),
+    };
     persistExpenses([...expenses,entry]);
-    setAmount("");setNote("");setEntryDate(today);
+    setAmount("");setNote("");setEntryDate(today);setReceipt(null);setTags([]);
     const catLabel=cats.find(c=>c.id===cat)?.label||cat;
-    showToast(`Logged ${MYR(val)} in ${catLabel}.`,"success");
+    showToast(travelActive
+      ?t('toast.loggedTravel',{foreign:fmt(raw,travel.currency),amount:MYR(val),category:catLabel})
+      :t('toast.logged',{amount:MYR(val),category:catLabel}),"success");
   };
   const startEdit=e=>{
-    const ec=expCats(e);setEditingId(e.id);setAmount(String(e.amount));setNote(e.note);setSelCats(ec.length?[ec[0]]:["food"]);setEntryDate(e.date);
+    const ec=expCats(e);setEditingId(e.id);
+    /* Show the foreign figure when editing an entry that was logged abroad. */
+    setAmount(travelActive&&typeof e.foreignAmount==='number'?String(e.foreignAmount):String(e.amount));
+    setNote(e.note);setSelCats(ec.length?[ec[0]]:["food"]);setEntryDate(e.date);setReceipt(e.receipt||null);setTags(cleanTags(e.tags));
     if(addFormRef.current)addFormRef.current.scrollIntoView({behavior:'smooth',block:'center'});
   };
   const updateExpense=()=>{
-    const val=parseFloat(amount);if(!val||val<=0)return;
+    const raw=parseFloat(amount);if(!raw||raw<=0)return;
     const cat=selCats[0]||"food";
-    persistExpenses(expenses.map(e=>e.id===editingId?{...e,amount:val,categories:[cat],category:cat,note:note.trim(),date:entryDate||today}:e));
-    cancelEdit();showToast("Spend updated.","success");
+    persistExpenses(expenses.map(e=>{
+      if(e.id!==editingId)return e;
+      const isTravel=travelActive&&typeof e.foreignAmount==='number';
+      const val=isTravel&&travelRate>0?raw*travelRate:raw;
+      return{
+        ...e,amount:val,categories:[cat],category:cat,note:note.trim(),date:entryDate||today,receipt:receipt||null,tags,
+        ...(isTravel?{currency:e.currency,foreignAmount:raw}:{}),
+      };
+    }));
+    cancelEdit();showToast(t('toast.spendUpdated'),"success");
   };
-  const cancelEdit=()=>{setEditingId(null);setAmount("");setNote("");setEntryDate(today)};
+  const cancelEdit=()=>{setEditingId(null);setAmount("");setNote("");setEntryDate(today);setReceipt(null);setTags([])};
   const removeExpense=id=>{
-    const removed=expenses.find(e=>e.id===id);
+    const idx=expenses.findIndex(e=>e.id===id);
+    const removed=expenses[idx];
     persistExpenses(expenses.filter(e=>e.id!==id));
     if(editingId===id)cancelEdit();
     if(removed){
       setLastAction({type:'delete',data:removed});
-      showToast("Spend removed.","info",{
-        label:"Undo",run:()=>{persistExpenses([...expenses,removed].filter((e,i,a)=>a.findIndex(x=>x.id===e.id)===i));setLastAction(null);showToast("Restored.","success")}
+      showToast(t('toast.spendRemoved'),"info",{
+        label:t('toast.actionUndo'),run:()=>{
+          // Re-insert at its original position in the current list.
+          const cur=stateRef.current?.expenses||[];
+          const next=cur.filter(e=>e.id!==removed.id);
+          next.splice(Math.min(Math.max(idx,0),next.length),0,removed);
+          persistExpenses(next);setLastAction(null);showToast(t('toast.restored'),"success");
+        }
       });
     }
   };
   const duplicateExpense=e=>{
     const entry={...e,id:uid(),date:today};
     persistExpenses([...expenses,entry]);
-    showToast(`Duplicated ${MYR(e.amount)}.`,"success");
+    showToast(t('toast.duplicated',{amount:MYR(e.amount)}),"success");
   };
 
   /* ─── Backup ─── */
@@ -886,12 +1183,12 @@ export default function App(){
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`ledger-backup-${today}.json`;
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-    showToast("Backup downloaded.","success");
+    showToast(t('toast.backupDownloaded'),"success");
   };
   const exportCSV=()=>{
-    if(expenses.length===0){showToast("Nothing to export.","error");return}
+    if(expenses.length===0){showToast(t('toast.nothingToExport'),"error");return}
     const rows=[["Date","Amount","Currency","Category","Note"]];
-    const sorted=[...expenses].sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:a.id-b.id));
+    const sorted=[...expenses].sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:cmpId(a,b)));
     for(const e of sorted){
       const catL=expCats(e).map(id=>(cats.find(c=>c.id===id)||{}).label||id).join(" + ");
       rows.push([e.date,e.amount.toFixed(2),cur,catL,(e.note||"").replace(/"/g,'""')]);
@@ -901,7 +1198,7 @@ export default function App(){
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`ledger-export-${today}.csv`;
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-    showToast("CSV exported.","success");
+    showToast(t('toast.csvExported'),"success");
   };
   const triggerImport=()=>fileInputRef.current?.click();
   const handleImportFile=e=>{
@@ -910,20 +1207,30 @@ export default function App(){
     reader.onload=ev=>{
       try{
         const data=JSON.parse(ev.target.result);
-        if(!data||typeof data!=="object"||!Array.isArray(data.expenses)){showToast("Not a valid ledger backup.","error");return}
+        if(!data||typeof data!=="object"||!validExpenses(data.expenses)){showToast(t('toast.invalidBackup'),"error");return}
+        // Validate every section before touching local state, so a malformed
+        // file can never leave the app half-restored.
+        if(data.settings!==undefined&&!validSettings(data.settings)){showToast(t('toast.invalidBackupSettings'),"error");return}
+        if(data.topUps!==undefined&&!validTopUps(data.topUps)){showToast(t('toast.invalidBackupTransfers'),"error");return}
+        if(data.recurring!==undefined&&!validRecurring(data.recurring)){showToast(t('toast.invalidBackupAutomations'),"error");return}
+        if(data.categories!==undefined&&!validCats(data.categories)){showToast(t('toast.invalidBackupCategories'),"error");return}
+        if(data.catBudgets!==undefined&&!isPlainObj(data.catBudgets)){showToast(t('toast.invalidBackupCatBudgets'),"error");return}
+        if(data.piggies!==undefined&&!validPiggies(data.piggies)){showToast(t('toast.invalidBackupPiggies'),"error");return}
+        if(data.balance!==undefined&&!(isPlainObj(data.balance)&&typeof data.balance.start==='number')){showToast(t('toast.invalidBackupBalance'),"error");return}
+        if(data.piggy!==undefined&&!(isPlainObj(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number')&&!(Array.isArray(data.piggies)&&data.piggies.length)){showToast(t('toast.invalidBackupPiggy'),"error");return}
+        const normExpenses=normalizeExpenses(data.expenses);
         if(data.settings)persistSettings(data.settings);
         if(data.categories)persistCats(data.categories);
         if(data.catBudgets)persistCatBudgets(data.catBudgets);
         if(Array.isArray(data.topUps))persistTopUps(data.topUps);
-        if(data.balance&&typeof data.balance==='object'&&!Array.isArray(data.balance)&&typeof data.balance.start==='number')persistBalance(data.balance);
+        if(data.balance)persistBalance(data.balance);
         if(Array.isArray(data.piggies)&&data.piggies.length){persistPiggies(data.piggies);if(data.piggies[0])setActivePiggyId(data.piggies[0].id)}
-        else if(data.piggy&&typeof data.piggy==='object'&&!Array.isArray(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number')persistPiggies([{id:uid(),name:'Piggy bank',target:data.piggy.target||0,saved:data.piggy.saved||0,texture:null,soundId:'coin',soundCustom:null}]);
-        if(Array.isArray(data.recurring)&&data.recurring.every(r=>r&&typeof r.amount==='number'&&typeof r.type==='string'))persistRecurring(data.recurring);
+        else if(data.piggy&&isPlainObj(data.piggy)&&typeof data.piggy.target==='number'&&typeof data.piggy.saved==='number')persistPiggies([{id:uid(),name:'Piggy bank',target:data.piggy.target||0,saved:data.piggy.saved||0,texture:null,soundId:'coin',soundCustom:null}]);
+        if(Array.isArray(data.recurring))persistRecurring(data.recurring);
         if(data.prefs)persistPrefs({...prefs,...data.prefs});
-        const normExpenses=normalizeExpenses(data.expenses);
         persistExpenses(normExpenses);
-        showToast(`Restored ${normExpenses.length} entries.`,"success");
-      }catch(err){showToast("Couldn't read that file.","error")}
+        showToast(t('toast.restoredEntries',{count:normExpenses.length}),"success");
+      }catch(err){showToast(t('toast.unreadableFile'),"error")}
     };
     reader.readAsText(file);e.target.value="";
   };
@@ -934,56 +1241,56 @@ export default function App(){
     const file=e.target.files?.[0];if(!file)return;
     const isVideo=file.type.startsWith("video/");
     const isImage=file.type.startsWith("image/");
-    if(!isVideo&&!isImage){showToast("Please choose an image or video file.","error");e.target.value="";return}
+    if(!isVideo&&!isImage){showToast(t('toast.chooseMedia'),"error");e.target.value="";return}
     const maxSize=isVideo?24*1024*1024:8*1024*1024;
-    if(file.size>maxSize){showToast(`${isVideo?"Video":"Image"} too large — pick one under ${isVideo?24:8}MB.`,"error");e.target.value="";return}
+    if(file.size>maxSize){showToast(t('toast.mediaTooLarge',{kind:isVideo?t('toast.kindVideo'):t('toast.kindImage'),size:isVideo?24:8}),"error");e.target.value="";return}
     const reader=new FileReader();
     reader.onload=ev=>{
       persistPrefs({...prefs,wallpaper:ev.target.result});
-      showToast(`${isVideo?"Video":"Image"} wallpaper set.`,"success");
+      showToast(t('toast.wallpaperSet',{kind:isVideo?t('toast.kindVideo'):t('toast.kindImage')}),"success");
     };
-    reader.onerror=()=>showToast(`Couldn't read that ${isVideo?"video":"image"}.`,"error");
+    reader.onerror=()=>showToast(t('toast.unreadableMedia',{kind:isVideo?t('toast.kindVideoLower'):t('toast.kindImageLower')}),"error");
     reader.readAsDataURL(file);e.target.value="";
   };
-  const clearWallpaper=()=>{persistPrefs({...prefs,wallpaper:null});showToast("Wallpaper removed.","success")};
+  const clearWallpaper=()=>{persistPrefs({...prefs,wallpaper:null});showToast(t('toast.wallpaperRemoved'),"success")};
 
   const cardPanelInputRef=useRef(null);
   const triggerCardPanelUpload=()=>cardPanelInputRef.current?.click();
   const handleCardPanelFile=e=>{
     const file=e.target.files?.[0];if(!file)return;
-    if(!file.type.startsWith("image/")){showToast("Please choose an image file.","error");e.target.value="";return}
-    if(file.size>8*1024*1024){showToast("Image too large — pick one under 8MB.","error");e.target.value="";return}
+    if(!file.type.startsWith("image/")){showToast(t('toast.chooseImageFile'),"error");e.target.value="";return}
+    if(file.size>8*1024*1024){showToast(t('toast.imageTooLarge8'),"error");e.target.value="";return}
     const reader=new FileReader();
     reader.onload=ev=>{
       persistPrefs({...prefs,cardPanel:ev.target.result});
-      showToast("Card panel set.","success");
+      showToast(t('toast.cardPanelSet'),"success");
     };
-    reader.onerror=()=>showToast("Couldn't read that image.","error");
+    reader.onerror=()=>showToast(t('toast.unreadableImage'),"error");
     reader.readAsDataURL(file);e.target.value="";
   };
-  const clearCardPanel=()=>{persistPrefs({...prefs,cardPanel:null});showToast("Card panel removed.","success")};
+  const clearCardPanel=()=>{persistPrefs({...prefs,cardPanel:null});showToast(t('toast.cardPanelRemoved'),"success")};
 
   /* ─── Categories ─── */
   const addCategory=()=>{
     const name=newCatName.trim();
-    if(!name){showToast("Enter a category name.","error");return}
+    if(!name){showToast(t('toast.enterCategoryName'),"error");return}
     const id=name.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
-    if(!id||cats.find(c=>c.id===id)){showToast("Invalid or duplicate name.","error");return}
+    if(!id||cats.find(c=>c.id===id)){showToast(t('toast.invalidCategoryName'),"error");return}
     const newCat={id,label:name,glyph:newCatGlyph||"★"};
     persistCats([...categories,newCat]);
     persistTheme({...theme,catColors:{...theme.catColors,[id]:'#7c8896'}});
     setNewCatName("");setNewCatGlyph("★");
-    showToast(`Category "${name}" added.`,"success");
+    showToast(t('toast.categoryAdded',{name}),"success");
   };
   const removeCategory=id=>{
-    if(expenses.some(e=>expCats(e).includes(id))){showToast("Can't delete — expenses use this category.","error");return}
+    if(expenses.some(e=>expCats(e).includes(id))){showToast(t('toast.categoryInUse'),"error");return}
     const updated=categories.filter(c=>c.id!==id);
     persistCats(updated);
     if(selCats.includes(id))setSelCats(prev=>{
       const next=prev.filter(x=>x!==id);
       return next.length?next:(updated[0]?[updated[0].id]:["food"]);
     });
-    showToast("Category removed.");
+    showToast(t('toast.categoryRemoved'));
   };
 
   /* ─── Theme ─── */
@@ -996,10 +1303,10 @@ export default function App(){
     }
     return null;
   },[theme,categories]);
-  const applyPreset=key=>{persistSavedTheme(null);persistTheme({...PRESETS[key]});showToast(`${PRESETS[key].name} theme applied.`,"success")};
+  const applyPreset=key=>{persistSavedTheme(null);persistTheme({...PRESETS[key]});showToast(t('toast.themeApplied',{name:PRESETS[key].name}),"success")};
   const updateColor=(k,v)=>{persistSavedTheme(null);persistTheme({...theme,[k]:v})};
   const updateCatColor=(catId,v)=>{persistSavedTheme(null);persistTheme({...theme,catColors:{...theme.catColors,[catId]:v}})};
-  const resetTheme=()=>{persistSavedTheme(null);persistTheme(DEFAULT_THEME);showToast("Theme reset.","success")};
+  const resetTheme=()=>{persistSavedTheme(null);persistTheme(DEFAULT_THEME);showToast(t('toast.themeReset'),"success")};
   const isDark=useMemo(()=>{
     const hex=theme.bg.replace('#','');const r=parseInt(hex.substr(0,2),16);const g=parseInt(hex.substr(2,2),16);const b=parseInt(hex.substr(4,2),16);
     return(r*0.299+g*0.587+b*0.114)<128;
@@ -1009,19 +1316,19 @@ export default function App(){
     if(savedTheme){
       persistTheme(savedTheme);
       persistSavedTheme(null);
-      showToast("Restored previous theme.","success");
+      showToast(t('toast.themeRestored'),"success");
       return;
     }
     // Otherwise remember the current theme, then flip to the opposite light/dark preset.
     persistSavedTheme(theme);
-    if(isDark){persistTheme(PRESETS.paper);showToast("Paper theme applied.","success")}
-    else{persistTheme(PRESETS.mono);showToast("Mono theme applied.","success")}
+    if(isDark){persistTheme(PRESETS.paper);showToast(t('toast.paperTheme'),"success")}
+    else{persistTheme(PRESETS.mono);showToast(t('toast.monoTheme'),"success")}
   };
 
   const handleClearAll=()=>setConfirm({
-    title:"Delete everything?",
-    msg:"This removes all logged expenses, budget settings, and preferences. Download a backup first if you want to keep your data.",
-    onConfirm:()=>{persistExpenses([]);persistSettings(null);persistCats(DEFAULT_CATS);persistCatBudgets({});persistTopUps([]);persistBalance({start:0});persistPiggies([{id:uid(),name:'Piggy bank',target:0,saved:0,texture:null,soundId:'coin',soundCustom:null}]);persistRecurring([]);setConfirm(null);showToast("All data cleared.","success")},
+    title:t('confirm.deleteEverything'),
+    msg:t('confirm.deleteEverythingMsg'),
+    onConfirm:()=>{persistExpenses([]);persistSettings(null);persistCats(DEFAULT_CATS);persistCatBudgets({});persistTopUps([]);persistBalance({start:0});persistPiggies([{id:uid(),name:'Piggy bank',target:0,saved:0,texture:null,soundId:'coin',soundCustom:null}]);persistRecurring([]);setConfirm(null);showToast(t('toast.allDataCleared'),"success")},
     onCancel:()=>setConfirm(null)
   });
 
@@ -1036,19 +1343,19 @@ export default function App(){
 
   const addCustomFont=()=>{
     const name=draftFontName.trim();
-    if(!name){showToast("Enter a Google Font name.","error");return}
+    if(!name){showToast(t('toast.enterFontName'),"error");return}
     const id=`custom:${name.toLowerCase().replace(/\s+/g,'-')}`;
     if((prefs.customFonts||[]).some(f=>f.id===id)){
       persistPrefs({...prefs,font:id});
       setDraftFontName("");
-      showToast(`${name} is already added.`,"success");
+      showToast(t('toast.fontAlreadyAdded',{name}),"success");
       return;
     }
     loadGoogleFont(name);
     const entry={id,name,family:name,stack:customFontStack(name)};
     persistPrefs({...prefs,customFonts:[...(prefs.customFonts||[]),entry],font:id});
     setDraftFontName("");
-    showToast(`${name} added from Google Fonts.`,"success");
+    showToast(t('toast.fontAdded',{name}),"success");
   };
   const removeCustomFont=id=>{
     const next=(prefs.customFonts||[]).filter(f=>f.id!==id);
@@ -1081,25 +1388,25 @@ export default function App(){
 
   const healthBadge=()=>{
     if(!settings)return null;
-    if(todayRemaining<0)return<span className="hero-badge neg">● Over today</span>;
-    if(todayRemaining/dailyBudget<0.2)return<span className="hero-badge warn">● Near limit</span>;
-    return<span className="hero-badge pos">● On track</span>;
+    if(todayRemaining<0)return<span className="hero-badge neg">{t('app.badgeOver')}</span>;
+    if(todayRemaining/dailyBudget<0.2)return<span className="hero-badge warn">{t('app.badgeNear')}</span>;
+    return<span className="hero-badge pos">{t('app.badgeOn')}</span>;
   };
 
   /* ─── Command actions ─── */
   const cmdActions=useMemo(()=>[
-    {id:'add',title:'Add new expense',icon:I.Plus,kbd:'⌘N',run:()=>{document.querySelector('.amount-field')?.focus()}},
-    {id:'theme',title:'Open theme & customization',icon:I.Palette,kbd:'⌘,',run:()=>{setDrawerTab('theme');setShowDrawer(true)}},
-    {id:'catalog',title:'Manage categories',icon:I.Wallet,run:()=>{setDrawerTab('cats');setShowDrawer(true)}},
-    {id:'budget',title:'Edit budget settings',icon:I.Settings,run:()=>{if(settings){setDraftBudget(String(settings.monthlyBudget));setDraftDays(String(settings.periodDays));setDraftStartDate(settings.startDate);setDraftBalance(String(balance?.start||0));setShowSetup(true)}}},
-    {id:'topup',title:balancesOn?'Move money to budget':'Top up budget',icon:balancesOn?I.Wallet:I.Zap,run:()=>{if(settings){setMoveMode("budget");setShowTopUp(true)}}},
-    {id:'darklight',title:isDark?'Switch to light mode':'Switch to dark mode',icon:isDark?I.Sun:I.Moon,run:toggleLightDark},
-    {id:'backup',title:'Download backup (JSON)',icon:I.Download,run:exportData},
-    {id:'csv',title:'Export as CSV',icon:I.Download,run:exportCSV},
-    {id:'restore',title:'Restore from backup',icon:I.Upload,run:triggerImport},
-    {id:'compact',title:prefs.compact?'Comfortable density':'Compact density',icon:I.Chart,run:()=>persistPrefs({...prefs,compact:!prefs.compact})},
-    {id:'clear',title:'Clear all data',icon:I.Trash,run:handleClearAll},
-  ],[isDark,settings,prefs,expenses,balance]);
+    {id:'add',title:t('palette.addExpense'),icon:I.Plus,kbd:'⌘N',run:()=>{document.querySelector('.amount-field')?.focus()}},
+    {id:'theme',title:t('palette.openTheme'),icon:I.Palette,kbd:'⌘,',run:()=>{setDrawerTab('theme');setShowDrawer(true)}},
+    {id:'catalog',title:t('palette.manageCategories'),icon:I.Wallet,run:()=>{setDrawerTab('cats');setShowDrawer(true)}},
+    {id:'budget',title:t('palette.editBudget'),icon:I.Settings,run:()=>{if(settings){setDraftBudget(String(settings.monthlyBudget));setDraftDays(String(settings.periodDays));setDraftStartDate(settings.startDate);setDraftBalance(String(balance?.start||0));setShowSetup(true)}}},
+    {id:'topup',title:balancesOn?t('palette.moveMoney'):t('palette.topUp'),icon:balancesOn?I.Wallet:I.Zap,run:()=>{if(settings){setMoveMode("budget");setShowTopUp(true)}}},
+    {id:'darklight',title:isDark?t('palette.switchToLight'):t('palette.switchToDark'),icon:isDark?I.Sun:I.Moon,run:toggleLightDark},
+    {id:'backup',title:t('palette.downloadBackup'),icon:I.Download,run:exportData},
+    {id:'csv',title:t('palette.exportCsv'),icon:I.Download,run:exportCSV},
+    {id:'restore',title:t('palette.restoreBackup'),icon:I.Upload,run:triggerImport},
+    {id:'compact',title:prefs.compact?t('palette.comfortableDensity'):t('pref.compact'),icon:I.Chart,run:()=>persistPrefs({...prefs,compact:!prefs.compact})},
+    {id:'clear',title:t('palette.clearAll'),icon:I.Trash,run:handleClearAll},
+  ],[isDark,settings,prefs,expenses,balance,categories,topUps,piggies,recurring,catBudgets,balancesOn]);
 
   /* ─── Keyboard ─── */
   useEffect(()=>{
@@ -1137,11 +1444,25 @@ export default function App(){
     return ()=>tiltDisable();
   },[prefs.tilt]);
 
+  /* Re-lock after the tab has been in the background for a while. */
+  useEffect(()=>{
+    if(!prefs.appLock)return;
+    const onVisibility=()=>{
+      if(document.hidden){lockAwayRef.current=Date.now()}
+      else if(lockAwayRef.current&&Date.now()-lockAwayRef.current>30000){
+        lockAwayRef.current=0;
+        const rec=getLock();if(rec&&rec.hash)setLocked(true);
+      }
+    };
+    document.addEventListener('visibilitychange',onVisibility);
+    return()=>document.removeEventListener('visibilitychange',onVisibility);
+  },[prefs.appLock]);
+
   /* ═══════════════════════════════════════════
      RENDER
      ═══════════════════════════════════════════ */
   /* ─── Reorderable cards ─── */
-  const cardOrder=(prefs.cardOrder&&prefs.cardOrder.length===7?prefs.cardOrder:DEFAULT_CARD_ORDER).filter(id=>balancesOn||id!=='piggy');
+  const cardOrder=mergeCardOrder(prefs.cardOrder,DEFAULT_CARD_ORDER).filter(id=>balancesOn||id!=='piggy');
   const moveCard=(id,dir)=>{
     const cur=cardOrder;
     const idx=cur.indexOf(id);
@@ -1167,7 +1488,7 @@ export default function App(){
     next.splice(to,0,fromId);
     persistPrefs({...prefs,cardOrder:next});
   };
-  const resetCardOrder=()=>{persistPrefs({...prefs,cardOrder:DEFAULT_CARD_ORDER});showToast('Card order reset.','success')};
+  const resetCardOrder=()=>{persistPrefs({...prefs,cardOrder:DEFAULT_CARD_ORDER});showToast(t('toast.cardOrderReset'),'success')};
 
   const startCatBudgetEdit=()=>{setCatBudgetDraft({...catBudgets});setCatBudgetEdit(true)};
   const setCatBudgetField=(id,v)=>setCatBudgetDraft(d=>({...d,[id]:v}));
@@ -1179,7 +1500,7 @@ export default function App(){
     }
     persistCatBudgets(next);
     setCatBudgetEdit(false);
-    showToast("Category budgets saved.","success");
+    showToast(t('toast.catBudgetsSaved'),"success");
   };
   const catBarWidth=c=>{
     const b=catBudgets[c.id];
@@ -1192,14 +1513,17 @@ export default function App(){
     return c.color;
   };
 
-  const CARD_LABELS={log:'Log a spend',breakdown:'Category breakdown',trend:'Spending trend',history:'History',auto:'Automations',piggy:'Piggy bank',backup:'Data & backup'};
+  const CARD_LABELS={log:t('app.cardLabel.log'),breakdown:t('app.cardLabel.breakdown'),trend:t('app.cardLabel.trend'),history:t('app.cardLabel.history'),insights:t('app.cardLabel.insights'),streak:t('app.cardLabel.streak'),auto:t('app.cardLabel.auto'),piggy:t('app.cardLabel.piggy'),backup:t('app.cardLabel.backup')};
+  /* Shared with the travel home page, which reuses the same entry form with the
+     foreign currency swapped in. */
+  const logProps={
+    cats,editingId,amount,setAmount,note,setNote:onNoteChange,entryDate,setEntryDate,today,
+    selCats,toggleSelCat,frequentEntries,applyFrequent,addExpense,updateExpense,cancelEdit,addFormRef,
+    receipt,onReceiptFile:attachReceipt,onRemoveReceipt:removeReceipt,onViewReceipt:setReceiptView,
+    tags,addTag,removeTag,
+  };
   const cardMap={
-    log:<LogCard
-      cats={cats} cur={cur} editingId={editingId} amount={amount} setAmount={setAmount}
-      note={note} setNote={setNote} entryDate={entryDate} setEntryDate={setEntryDate} today={today}
-      selCats={selCats} toggleSelCat={toggleSelCat} frequentEntries={frequentEntries} applyFrequent={applyFrequent}
-      addExpense={addExpense} updateExpense={updateExpense} cancelEdit={cancelEdit} addFormRef={addFormRef}
-    />,
+    log:<LogCard {...logProps} cur={cur}/>,
     breakdown:<BreakdownCard
       cats={cats} catBudgets={catBudgets} catBudgetEdit={catBudgetEdit} catBudgetDraft={catBudgetDraft}
       startCatBudgetEdit={startCatBudgetEdit} setCatBudgetField={setCatBudgetField} saveCatBudgets={saveCatBudgets}
@@ -1225,6 +1549,14 @@ export default function App(){
       historyList={historyList} historySpentTotal={historySpentTotal} historyToppedTotal={historyToppedTotal}
       groupedHistory={groupedHistory} MYR={MYR} today={today} balancesOn={balancesOn}
       startEdit={startEdit} duplicateExpense={duplicateExpense} removeExpense={removeExpense} removeTopUp={removeTopUp}
+      onViewReceipt={setReceiptView}
+      filterTags={filterTags} toggleFilterTag={toggleFilterTag} setFilterTags={setFilterTags} allTags={allTags}
+    />,
+    insights:<InsightsCard
+      insights={monthInsights} MYR={MYR} today={today} relativeDate={relativeDate}
+    />,
+    streak:<StreakCard
+      streak={spendStreak} best={bestStreak} loggedToday={loggedToday} grace={prefs.streakGrace||0}
     />,
     auto:<AutoCard
       autoType={autoType} setAutoType={setAutoType} autoAmount={autoAmount} setAutoAmount={setAutoAmount}
@@ -1266,14 +1598,22 @@ export default function App(){
         </div>
       )}
       <WeatherEffect type={prefs.weather} speed={prefs.weatherSpeed}/>
-      <TopBar scrolled={scrolled} isDark={isDark} toggleLightDark={toggleLightDark} showDrawer={showDrawer} setShowDrawer={setShowDrawer} setDrawerTab={setDrawerTab} setShowCmd={setShowCmd}/>
+      <TopBar scrolled={scrolled} isDark={isDark} toggleLightDark={toggleLightDark} showDrawer={showDrawer} setShowDrawer={setShowDrawer} setDrawerTab={setDrawerTab} setShowCmd={setShowCmd} edgeBlur={prefs.edgeBlur!==false}/>
       <div className="shell">
         <input ref={fileInputRef} type="file" accept="application/json" style={{display:"none"}} onChange={handleImportFile}/>
         <input ref={wallpaperInputRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={handleWallpaperFile}/>
         {!settings?(
-          <SetupCard balancesOn={balancesOn} draftBudget={draftBudget} setDraftBudget={setDraftBudget} draftCurrency={draftCurrency} setDraftCurrency={setDraftCurrency} draftDays={draftDays} setDraftDays={setDraftDays} draftStartDate={draftStartDate} setDraftStartDate={setDraftStartDate} today={today} draftBalance={draftBalance} setDraftBalance={setDraftBalance} saveSetup={saveSetup} triggerImport={triggerImport}/>
+          <SetupCard balancesOn={balancesOn} draftBudget={draftBudget} setDraftBudget={setDraftBudget} draftCurrency={draftCurrency} setDraftCurrency={setDraftCurrency} draftDays={draftDays} setDraftDays={setDraftDays} draftStartDate={draftStartDate} setDraftStartDate={setDraftStartDate} today={today} draftBalance={draftBalance} setDraftBalance={setDraftBalance} saveSetup={saveSetup} triggerImport={triggerImport} lang={prefs.lang||'en'} setLangPref={l=>persistPrefs({...prefs,lang:l})}/>
         ):(
           <>
+            {travelActive?(
+              <TravelHome
+                travel={travel} cur={cur} MYR={MYR} travelList={travelList} travelByCurrency={travelByCurrency} cats={cats} today={today}
+                editingId={editingId} startEdit={startEdit} removeExpense={removeExpense}
+                onViewReceipt={setReceiptView} endTravel={endTravel} logProps={logProps}
+              />
+            ):(
+              <>
             <Hero
               heroLabel={heroLabel} heroValue={heroValue} MYR={MYR} healthBadge={healthBadge}
               streak={streak} balancesOn={balancesOn} todaySaved={todaySaved} topUpTotal={topUpTotal}
@@ -1293,17 +1633,19 @@ export default function App(){
                   onDragOver={handleCardDragOver}
                   onDrop={handleCardDrop(id)}>
                   <div className="card-reorder-bar">
-                    <span className="card-drag-handle" title="Drag to reorder"><I.Grip/></span>
+                    <span className="card-drag-handle" title={t('app.dragToReorder')}><I.Grip/></span>
                     <span className="card-reorder-name">{CARD_LABELS[id]}</span>
                     <span className="card-reorder-actions">
-                      <button className="card-reorder-btn" onClick={()=>moveCard(id,-1)} disabled={idx===0} title="Move up" aria-label="Move up"><I.ChevronUp/></button>
-                      <button className="card-reorder-btn" onClick={()=>moveCard(id,1)} disabled={idx===cardOrder.length-1} title="Move down" aria-label="Move down"><I.ChevronDown/></button>
+                      <button className="card-reorder-btn" onClick={()=>moveCard(id,-1)} disabled={idx===0} title={t('app.moveUp')} aria-label={t('app.moveUp')}><I.ChevronUp/></button>
+                      <button className="card-reorder-btn" onClick={()=>moveCard(id,1)} disabled={idx===cardOrder.length-1} title={t('app.moveDown')} aria-label={t('app.moveDown')}><I.ChevronDown/></button>
                     </span>
                   </div>
                   {cardMap[id]}
                 </div>
               ))}
             </div>
+              </>
+            )}
           </>
         )}
 
@@ -1342,6 +1684,10 @@ export default function App(){
             showToast={showToast}
             authUser={authUser} signInGoogle={signInGoogle} signOutGoogle={signOutGoogle}
             syncError={syncError} syncErrorMsg={syncErrorMsg} lastSyncedAt={lastSyncedAt} resetTheme={resetTheme}
+            requestNotifyPermission={requestNotifyPermission} onToggleAppLock={handleToggleAppLock}
+            onChangePin={()=>setLockSetup(true)} onSetupBiometric={handleSetupBiometric}
+            lockSet={!!(lockRec&&lockRec.hash)} biometricReady={biometricAvailable()}
+            rateStatus={rateStatus} refreshRate={refreshTravelRate} travelByCurrency={travelByCurrency} endTravel={endTravel}
           />
         )}
 
@@ -1349,7 +1695,16 @@ export default function App(){
 
         {toast&&<Toast toast={toast} onDismiss={id=>setToast(t=>t&&t.id===id?null:t)}/>}
 
+        {receiptView&&(
+          <div className="confirm-overlay" onClick={()=>setReceiptView(null)}>
+            <img className="receipt-full" src={receiptView} alt={t('app.receiptAlt')} onClick={e=>e.stopPropagation()}/>
+          </div>
+        )}
+
         {confirm&&<Confirm {...confirm}/>}
+
+        {locked&&<LockScreen mode="unlock" onUnlock={handleUnlock} onForgot={handleForgotPin} biometric={biometricAvailable()} onBiometric={handleBiometric}/>}
+        {lockSetup&&<LockScreen mode="setup" onSetup={handleSetPin} onCancel={()=>setLockSetup(false)}/>}
       </div>
     </div>
   );

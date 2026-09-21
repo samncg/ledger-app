@@ -16,9 +16,12 @@ try {
   const html = render();
   for (const needle of ['Customize', 'Budget settings', 'Move to budget', 'Log a spend', 'Category breakdown',
     'Spending trend', 'History', 'Piggy bank', 'Automations', 'Data &amp; backup', 'Available today',
-    'Wallpaper (Local)', 'Weather effects', 'Presets', 'Typography', 'Card panels', 'Desktop cat',
-    'Preview', 'Ring thickness', 'Trend style', 'Category colors', 'Your categories', 'Add category',
-    'Preferences', 'Bank balance system', 'Cloud sync', 'Keyboard shortcuts', 'Search commands…']) {
+    'Streak',
+    'Wallpaper (Local)', 'Weather effects', 'Glass &amp; transparency', 'Presets', 'Interface', 'Status',
+    'Typography', 'Card panels', 'Card layout', 'Desktop cat',
+    'Pie chart', 'Ring thickness', 'Trend style', 'Category colors', 'Your categories', 'Add category',
+    'Preferences', 'Balance', 'Streaks', 'Language', 'Travel', 'Travel mode', 'Home currency', 'Cloud sync', 'Keyboard shortcuts',
+    'Tags', 'Search commands…']) {
     if (!html.includes(needle)) throw new Error('missing: ' + needle);
   }
   console.log('OK components render:', html.length, 'chars,', 'all drawers/cards present');

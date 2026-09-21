@@ -44,6 +44,7 @@ import com.ledger.app.ui.components.MonthSelector
 import com.ledger.app.ui.components.RangeTabs
 import com.ledger.app.ui.components.StatDivider
 import com.ledger.app.ui.parseColor
+import com.ledger.app.ui.t
 import com.ledger.app.util.monthEndKey
 import com.ledger.app.util.monthLabel
 
@@ -51,7 +52,13 @@ import com.ledger.app.util.monthLabel
 @Composable
 fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
     val cs = MaterialTheme.colorScheme
-    val ranges = listOf("period" to "Period", "week" to "7d", "month" to "Month", "all" to "All", "custom" to "Custom")
+    val ranges = listOf(
+        "period" to t("card.breakdown.rangePeriod"),
+        "week" to t("card.breakdown.range7d"),
+        "month" to t("card.breakdown.rangeMonth"),
+        "all" to t("card.breakdown.rangeAll"),
+        "custom" to t("card.breakdown.rangeCustom"),
+    )
     var range by remember { mutableStateOf("period") }
     var from by remember { mutableStateOf("") }
     var to by remember { mutableStateOf("") }
@@ -69,12 +76,12 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
     val negative = parseColor(s.theme.negative) ?: cs.primary
 
     CardContainer(
-        title = "Category breakdown",
+        title = t("card.breakdown.title"),
         icon = Icons.Outlined.PieChart,
         trailing = {
             if (editingBudgets) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LinkText("Save") {
+                    LinkText(t("card.breakdown.save")) {
                         val next = drafts.mapNotNull { (id, v) ->
                             val n = v.toDoubleOrNull()
                             if (n != null && n > 0) id to n else null
@@ -82,10 +89,10 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
                         vm.saveCatBudgets(next)
                         editingBudgets = false
                     }
-                    LinkText("Cancel") { editingBudgets = false }
+                    LinkText(t("card.breakdown.cancel")) { editingBudgets = false }
                 }
             } else {
-                LinkText("Budgets") {
+                LinkText(t("card.breakdown.budgets")) {
                     drafts = s.catBudgets.mapValues { (_, v) -> v.toString() }; editingBudgets = true
                 }
             }
@@ -98,14 +105,18 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
         ) {
             MonthSelector(base = s.today, monthOffset = monthOffset) { monthOffset = it }
             if (browsingPast) {
-                Text("This month", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    t("card.breakdown.thisMonth"),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
         if (browsingPast) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "Showing ${monthLabel(s.today, monthOffset)}",
+                t("card.breakdown.showing", "month" to monthLabel(s.today, monthOffset)),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -118,12 +129,22 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
-                    FieldLabel("From")
-                    DateField(value = from, onChange = { from = it }, maxDate = to.ifEmpty { s.today }, placeholder = "Start date")
+                    FieldLabel(t("card.breakdown.from"))
+                    DateField(
+                        value = from,
+                        onChange = { from = it },
+                        maxDate = to.ifEmpty { s.today },
+                        placeholder = t("card.breakdown.startDate")
+                    )
                 }
                 Column(Modifier.weight(1f)) {
-                    FieldLabel("To")
-                    DateField(value = to, onChange = { to = it }, maxDate = s.today, placeholder = "Max date")
+                    FieldLabel(t("card.breakdown.to"))
+                    DateField(
+                        value = to,
+                        onChange = { to = it },
+                        maxDate = s.today,
+                        placeholder = t("card.breakdown.maxDate")
+                    )
                 }
             }
         }
@@ -134,7 +155,7 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            TotalsBox("Total spent", fmtD(s, data.totalSpent), data.rangeLabel, Modifier.weight(1f))
+            TotalsBox(t("card.breakdown.totalSpent"), fmtD(s, data.totalSpent), data.rangeLabel, Modifier.weight(1f))
             StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
             val pctColor = when {
                 data.budgetPct >= 100 -> negative
@@ -142,8 +163,8 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
                 else -> cs.onSurface
             }
             TotalsBox(
-                "% of allowance", "${String.format("%.1f", data.budgetPct)}%",
-                "vs ${fmtD(s, data.rangeBudget)} · ${data.rangeDays}d",
+                t("card.breakdown.pctAllowance"), "${String.format("%.1f", data.budgetPct)}%",
+                t("card.breakdown.vs", "amount" to fmtD(s, data.rangeBudget), "days" to data.rangeDays),
                 Modifier.weight(1f),
                 valueColor = pctColor,
             )
@@ -155,11 +176,14 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Insight("Avg spending/day", fmtD(s, data.avgPerDay), Modifier.weight(1.3f))
+            Insight(t("card.breakdown.avgPerDay"), fmtD(s, data.avgPerDay), Modifier.weight(1.3f))
             StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
-            Insight("Txns", data.txnCount.toString(), Modifier.weight(0.8f))
+            Insight(t("card.breakdown.txns"), data.txnCount.toString(), Modifier.weight(0.8f))
             StatDivider(vertical = true, modifier = Modifier.padding(vertical = 2.dp))
-            Insight("Biggest", data.biggestInRange?.let { fmtD(s, it.amount) } ?: "—", Modifier.weight(1f))
+            Insight(
+                t("card.breakdown.biggest"),
+                data.biggestInRange?.let { fmtD(s, it.amount) } ?: "—",
+                Modifier.weight(1f))
         }
 
         Spacer(Modifier.height(16.dp))
@@ -169,7 +193,7 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
                 thickness = s.prefs.pieThickness,
                 gap = s.prefs.pieGap,
                 centerValue = fmtD(s, data.totalSpent),
-                centerSub = if (data.txnCount == 0) "no spending" else "spent",
+                centerSub = if (data.txnCount == 0) t("card.breakdown.noSpending") else t("card.breakdown.spent"),
             )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
@@ -197,7 +221,7 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
                         value = drafts[c.id] ?: "",
                         onChange = { drafts = drafts + (c.id to it) },
                         modifier = Modifier.width(110.dp), mono = true, numeric = true,
-                        placeholder = "No limit",
+                        placeholder = t("card.breakdown.noLimit"),
                         onDone = {
                             vm.saveCatBudgets(drafts.mapNotNull { (id, v) ->
                                 v.toDoubleOrNull()?.takeIf { it > 0 }?.let { id to it }
@@ -225,7 +249,7 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
                     valueTrailing = if (budget != null && budget > 0) {
                         {
                             Text(
-                                " / ${fmtD(s, budget)}",
+                                t("card.breakdown.budgetSuffix", "amount" to fmtD(s, budget)),
                                 fontSize = 10.5.sp,
                                 color = if (over) negative else cs.onSurfaceVariant,
                             )

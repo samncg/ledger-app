@@ -56,7 +56,10 @@ import com.ledger.app.ui.components.DateField
 import com.ledger.app.ui.components.EmptyState
 import com.ledger.app.ui.components.FieldLabel
 import com.ledger.app.ui.components.RangeTabs
+import com.ledger.app.ui.components.ReceiptPreviewDialog
+import com.ledger.app.ui.components.ReceiptThumbnail
 import com.ledger.app.ui.parseColor
+import com.ledger.app.ui.t
 import com.ledger.app.util.fmt
 import com.ledger.app.util.relativeDate
 
@@ -75,36 +78,40 @@ fun HistoryCard(
     var dateFrom by remember { mutableStateOf("") }
     var dateTo by remember { mutableStateOf("") }
     var filterCats by remember { mutableStateOf(listOf<String>()) }
+    var filterTags by remember { mutableStateOf(listOf<String>()) }
+    var previewReceipt by remember { mutableStateOf<String?>(null) }
+    val allTags = remember(s.expenses) { s.expenses.flatMap { it.tags }.distinct().sorted() }
 
-    val data: HistoryData = remember(s, filterCats, search, dateFrom, dateTo, sort, s.prefs.groupHistory) {
-        vm.history(s, filterCats, search, dateFrom, dateTo, sort, s.prefs.groupHistory)
+    val data: HistoryData = remember(s, filterCats, filterTags, search, dateFrom, dateTo, sort, s.prefs.groupHistory) {
+        vm.history(s, filterCats, filterTags, search, dateFrom, dateTo, sort, s.prefs.groupHistory)
     }
     val totalCount = s.expenses.size + s.topUps.size
     val positive = parseColor(s.theme.positive) ?: cs.primary
     val warning = parseColor(s.theme.warning) ?: cs.primary
 
     CardContainer(
-        title = "History",
+        title = t("history.title"),
         icon = Icons.Outlined.History,
         count = if (totalCount > 0) "($totalCount)" else null,
         trailing = if (totalCount > 0) {
             {
                 Text(
-                    "Reset filters",
+                    t("history.resetFilters"),
                     color = cs.primary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .clickable {
-                            filterCats = emptyList(); search = ""; dateFrom = ""; dateTo = ""; sort = "date-desc"
+                            filterCats = emptyList(); filterTags = emptyList(); search = ""; dateFrom = ""; dateTo =
+                            ""; sort = "date-desc"
                         }
                         .padding(4.dp))
             }
         } else null,
     ) {
         ChipFlow {
-            CatChip("All", null, filterCats.isEmpty()) { filterCats = emptyList() }
+            CatChip(t("history.all"), null, filterCats.isEmpty()) { filterCats = emptyList() }
             s.cats.forEach { c ->
                 CatChip(c.label, c.color, filterCats.contains(c.id)) { toggleCat(filterCats, c.id) { filterCats = it } }
             }
@@ -113,7 +120,7 @@ fun HistoryCard(
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (showFilters) "Hide" else "Sort & filter" + if (!showFilters && data.activeFilterCount > 0) " (${data.activeFilterCount})" else "",
+                if (showFilters) t("history.hide") else t("history.sortFilter") + if (!showFilters && data.activeFilterCount > 0) " (${data.activeFilterCount})" else "",
                 color = cs.primary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -129,15 +136,15 @@ fun HistoryCard(
                 value = search,
                 onChange = { search = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = "Search notes or categories…"
+                placeholder = t("history.search")
             )
             Spacer(Modifier.height(8.dp))
             RangeTabs(
                 options = listOf(
-                    "date-desc" to "Newest first",
-                    "date-asc" to "Oldest first",
-                    "amount-desc" to "Amount ↓",
-                    "amount-asc" to "Amount ↑"
+                    "date-desc" to t("history.newest"),
+                    "date-asc" to t("history.oldest"),
+                    "amount-desc" to t("history.amountDown"),
+                    "amount-asc" to t("history.amountUp")
                 ),
                 selected = sort,
                 onSelect = { sort = it },
@@ -145,18 +152,40 @@ fun HistoryCard(
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
-                    FieldLabel("From")
-                    DateField(value = dateFrom, onChange = { dateFrom = it }, maxDate = dateTo.ifEmpty { s.today }, placeholder = "Start date")
+                    FieldLabel(t("history.from"))
+                    DateField(
+                        value = dateFrom,
+                        onChange = { dateFrom = it },
+                        maxDate = dateTo.ifEmpty { s.today },
+                        placeholder = t("history.startDate")
+                    )
                 }
                 Column(Modifier.weight(1f)) {
-                    FieldLabel("To")
-                    DateField(value = dateTo, onChange = { dateTo = it }, maxDate = s.today, placeholder = "Max date")
+                    FieldLabel(t("history.to"))
+                    DateField(
+                        value = dateTo,
+                        onChange = { dateTo = it },
+                        maxDate = s.today,
+                        placeholder = t("history.maxDate")
+                    )
+                }
+            }
+            if (allTags.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                FieldLabel(t("history.tags"))
+                ChipFlow {
+                    CatChip(t("history.any"), null, filterTags.isEmpty()) { filterTags = emptyList() }
+                    allTags.forEach { tg ->
+                        CatChip("#$tg", null, filterTags.contains(tg)) {
+                            filterTags = if (filterTags.contains(tg)) filterTags - tg else filterTags + tg
+                        }
+                    }
                 }
             }
             if (filterCats.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Transfers are hidden while a category filter is active.",
+                    t("history.transfersHidden"),
                     fontSize = 11.sp,
                     color = cs.onSurfaceVariant
                 )
@@ -165,18 +194,18 @@ fun HistoryCard(
 
         Spacer(Modifier.height(12.dp))
         Text(
-            "${data.entries.size} ${if (data.entries.size == 1) "entry" else "entries"} · ${
+            "${data.entries.size} ${if (data.entries.size == 1) t("history.entry") else t("history.entries")} · ${
                 fmt(
                     data.spentTotal,
                     s.cur
                 )
-            } spent" +
+            } ${t("history.spent")}" +
                     if (data.toppedTotal != 0.0) " · ${if (data.toppedTotal > 0) "+" else ""}${
                         fmt(
                             data.toppedTotal,
                             s.cur
                         )
-                    } ${if (s.balancesOn) "moved to budget" else "topped up"}" else "",
+                    } ${if (s.balancesOn) t("history.movedToBudget") else t("history.toppedUp")}" else "",
             fontSize = 12.sp,
         )
 
@@ -184,8 +213,8 @@ fun HistoryCard(
         if (data.entries.isEmpty()) {
             EmptyState(
                 if (totalCount == 0) "◌" else "∅",
-                if (totalCount == 0) "No spends yet. Add your first one above!" else "No entries match your filters.",
-                if (totalCount == 0) "Data stays on your device." else "Try adjusting search or dates.",
+                if (totalCount == 0) t("history.noSpends") else t("history.noMatch"),
+                if (totalCount == 0) t("history.dataStays") else t("history.tryAdjust"),
             )
         } else {
             LazyColumn(if (expand) Modifier.fillMaxHeight() else Modifier.heightIn(max = 420.dp)) {
@@ -221,12 +250,15 @@ fun HistoryCard(
                             onEdit = { onEditEntry(e) },
                             onDuplicate = { vm.duplicateExpense(e.id) },
                             onDelete = { vm.removeExpense(e.id) },
-                            onRemoveTopUp = { vm.removeTopUp(e.id) })
+                            onRemoveTopUp = { vm.removeTopUp(e.id) },
+                            onPreviewReceipt = { previewReceipt = e.receipt })
                     }
                 }
             }
         }
     }
+
+    ReceiptPreviewDialog(previewReceipt) { previewReceipt = null }
 }
 
 @Composable
@@ -239,6 +271,7 @@ private fun HistoryRow(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onRemoveTopUp: () -> Unit,
+    onPreviewReceipt: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -273,7 +306,7 @@ private fun HistoryRow(
         Column(Modifier.weight(1f)) {
             Text(
                 if (e.type == "topup")
-                    if (e.amount >= 0) (if (s.balancesOn) "Move to budget" else "Top up") else "Return to balance"
+                    if (e.amount >= 0) (if (s.balancesOn) t("history.moveToBudget") else t("history.topUp")) else t("history.returnToBalance")
                 else (s.cats.find { it.id == (e.categories.firstOrNull() ?: e.category) }?.label ?: e.category ?: "—") +
                         if (e.categories.size > 1) " +${e.categories.size - 1}" else "",
                 fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -287,29 +320,65 @@ private fun HistoryRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            if (e.tags.isNotEmpty()) {
+                Text(
+                    e.tags.joinToString("  ") { "#$it" },
+                    fontSize = 10.sp,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (e.receipt != null) {
+            Spacer(Modifier.width(6.dp))
+            ReceiptThumbnail(e.receipt, size = 30, onClick = onPreviewReceipt)
         }
         Spacer(Modifier.width(8.dp))
         Column(horizontalAlignment = Alignment.End) {
             Text(relativeDate(e.date, s.today), fontSize = 10.5.sp, color = cs.onSurfaceVariant)
-            Text(
-                (if (e.type == "topup" && e.amount >= 0) "+" else "") + fmt(e.amount, s.cur),
-                fontSize = 12.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold,
-                color = if (e.type == "topup") (if (e.amount >= 0) positive else warning) else cs.onSurface,
-            )
+            if (e.currency != null && e.foreignAmount != null) {
+                /* Logged abroad: the foreign figure it was entered in, over the home equivalent. */
+                Text(
+                    fmt(e.foreignAmount, e.currency),
+                    fontSize = 12.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold,
+                    color = cs.onSurface,
+                )
+                Text(
+                    "≈ ${fmt(e.amount, s.cur)}",
+                    fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = cs.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    (if (e.type == "topup" && e.amount >= 0) "+" else "") + fmt(e.amount, s.cur),
+                    fontSize = 12.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold,
+                    color = if (e.type == "topup") (if (e.amount >= 0) positive else warning) else cs.onSurface,
+                )
+            }
         }
         if (e.type == "topup") {
             IconButton(onClick = onRemoveTopUp, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.Outlined.Delete, "Remove transfer", Modifier.size(15.dp), tint = cs.onSurfaceVariant)
+                Icon(
+                    Icons.Outlined.Delete,
+                    t("common.removeTransfer"),
+                    Modifier.size(15.dp),
+                    tint = cs.onSurfaceVariant
+                )
             }
         } else {
             IconButton(onClick = onEdit, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.Outlined.Edit, "Edit", Modifier.size(14.dp), tint = cs.onSurfaceVariant)
+                Icon(Icons.Outlined.Edit, t("common.edit"), Modifier.size(14.dp), tint = cs.onSurfaceVariant)
             }
             IconButton(onClick = onDuplicate, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.Outlined.ContentCopy, "Duplicate", Modifier.size(14.dp), tint = cs.onSurfaceVariant)
+                Icon(
+                    Icons.Outlined.ContentCopy,
+                    t("common.duplicate"),
+                    Modifier.size(14.dp),
+                    tint = cs.onSurfaceVariant
+                )
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.Outlined.Delete, "Delete", Modifier.size(15.dp), tint = cs.onSurfaceVariant)
+                Icon(Icons.Outlined.Delete, t("common.delete"), Modifier.size(15.dp), tint = cs.onSurfaceVariant)
             }
         }
     }

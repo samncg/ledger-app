@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.ledger.app.data.DayCell
 import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.parseColor
+import com.ledger.app.ui.t
 import com.ledger.app.util.relativeDate
 
 /* Hero — daily allowance, balance, stats, budget progress and the daily strip */
@@ -91,14 +93,14 @@ fun Hero(
                         if (s.balancesOn && s.todaySaved > 0) {
                             Badge(positive) {
                                 Icon(Icons.Outlined.Wallet, null, Modifier.size(11.dp))
-                                Text("${myr(s.todaySaved)} saved today", fontSize = 11.sp)
+                                Text(t("hero.savedToday", "amount" to myr(s.todaySaved)), fontSize = 11.sp)
                             }
                         }
                         if (s.topUpTotal > 0) {
                             Badge(positive) {
                                 Icon(Icons.Outlined.Bolt, null, Modifier.size(11.dp))
                                 Text(
-                                    "${myr(s.topUpTotal)} ${if (s.balancesOn) "moved to budget" else "topped up"}",
+                                    "${myr(s.topUpTotal)} ${if (s.balancesOn) t("history.movedToBudget") else t("history.toppedUp")}",
                                     fontSize = 11.sp
                                 )
                             }
@@ -107,7 +109,7 @@ fun Hero(
                 }
                 Spacer(Modifier.width(10.dp))
                 Btn(
-                    if (s.balancesOn) "Move money" else "Top up",
+                    if (s.balancesOn) t("hero.moveMoney") else t("hero.topUp"),
                     onClick = onMoveMoney,
                     variant = "secondary",
                     small = true,
@@ -118,7 +120,7 @@ fun Hero(
             if (s.todayRemaining < 0) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Over today's allowance by ${myr(-s.todayRemaining)}",
+                    t("hero.overTodayBy", "amount" to myr(-s.todayRemaining)),
                     fontSize = 12.5.sp, color = negative, fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -127,24 +129,28 @@ fun Hero(
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatBox(
-                    "Daily allowance",
+                    t("hero.dailyAllowance"),
                     myr(s.dailyBudget),
-                    "${myr(s.effectiveMonthlyBudget)} / ${s.settings?.periodDays}d",
+                    t(
+                        "screen.dashboard.perDays",
+                        "amount" to myr(s.effectiveMonthlyBudget),
+                        "days" to s.settings?.periodDays
+                    ),
                     Modifier.weight(1f)
                 )
                 if (s.balancesOn) {
                     StatBox(
-                        "Saved to balance",
+                        t("hero.savedToBalance"),
                         myr(s.bankedSoFar),
-                        "Leftover allowance banked so far",
+                        t("hero.leftoverBanked"),
                         Modifier.weight(1f),
                         valueColor = if (s.bankedSoFar < 0) negative else positive
                     )
                 } else {
                     StatBox(
-                        if (s.runningBalance < 0) "Total over" else "Rollover",
+                        if (s.runningBalance < 0) t("hero.totalOver") else t("hero.rollover"),
                         myr(Math.abs(s.runningBalance)),
-                        if (s.runningBalance < 0) "Spent over allowance" else "Unspent allowance carries over",
+                        if (s.runningBalance < 0) t("hero.spentOverAllowance") else t("hero.unspentCarries"),
                         Modifier.weight(1f),
                         valueColor = if (s.runningBalance < 0) negative else positive,
                     )
@@ -153,13 +159,19 @@ fun Hero(
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatBox(
-                    "Avg spending / day", myr(s.avgDailySpend),
-                    (if (s.avgDailySpend <= s.dailyBudget) "Under allowance" else "Over allowance") + if (s.daysOver > 0) " · ${s.daysOver}d over" else "",
+                    t("hero.avgPerDay"), myr(s.avgDailySpend),
+                    (if (s.avgDailySpend <= s.dailyBudget) t("hero.underAllowance") else t("hero.overAllowance")) + if (s.daysOver > 0) " · " + t(
+                        "screen.dashboard.daysOver",
+                        "days" to s.daysOver
+                    ) else "",
                     Modifier.weight(1f),
                 )
                 StatBox(
-                    "Projected total", myr(s.projectedTotal),
-                    if (s.projectedDelta < 0) "${myr(-s.projectedDelta)} over if pace holds" else "${myr(s.projectedDelta)} left if pace holds",
+                    t("hero.projectedTotal"), myr(s.projectedTotal),
+                    if (s.projectedDelta < 0) t(
+                        "hero.overIfPace",
+                        "amount" to myr(-s.projectedDelta)
+                    ) else t("hero.leftIfPace", "amount" to myr(s.projectedDelta)),
                     Modifier.weight(1f),
                     valueColor = if (s.projectedDelta < 0) negative else cs.onSurface,
                 )
@@ -168,14 +180,17 @@ fun Hero(
             /* ── Budget progress ── */
             Spacer(Modifier.height(14.dp))
             val budgetLeft = s.effectiveMonthlyBudget - s.periodSpent
-            val budgetLeftText = if (budgetLeft >= 0) "${myr(budgetLeft)} left" else "${myr(Math.abs(budgetLeft))} over"
+            val budgetLeftText = if (budgetLeft >= 0) t("hero.left", "amount" to myr(budgetLeft)) else t(
+                "hero.over",
+                "amount" to myr(Math.abs(budgetLeft))
+            )
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Budget progress",
+                    t("hero.budgetProgress"),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.4.sp,
@@ -204,13 +219,17 @@ fun Hero(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Daily spend · this period",
+                    t("hero.dailySpendPeriod"),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.4.sp,
                     color = cs.onSurfaceVariant
                 )
-                Text("Day ${s.elapsedDays} / ${s.settings?.periodDays}", fontSize = 11.sp, color = cs.onSurfaceVariant)
+                Text(
+                    t("hero.dayOf", "day" to s.elapsedDays, "total" to s.settings?.periodDays),
+                    fontSize = 11.sp,
+                    color = cs.onSurfaceVariant
+                )
             }
             Spacer(Modifier.height(8.dp))
             // Slide-your-finger daily strip — move across the bars to inspect each day's date + spending.
@@ -221,7 +240,7 @@ fun Hero(
             val barSpacingPx = with(density) { 3.dp.toPx() }
             val days = s.dayCells.size
             Row(
-                Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(10.dp)).background(cs.surfaceVariant)
+                Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(10.dp)).background(innerSurfaceColor())
                     .padding(8.dp)
                     .onSizeChanged { stripWidthPx = it.width }
                     .pointerInput(days, stripWidthPx, barSpacingPx) {
@@ -233,6 +252,16 @@ fun Hero(
                             val down = awaitFirstDown()
                             selIdx = indexAt(down.position.x)
                             barTick()
+                            // Only steal the gesture once it's clearly horizontal; a mostly
+                            // vertical drag must be left to the parent LazyColumn to scroll.
+                            val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ ->
+                                change.consume()
+                            } ?: return@awaitEachGesture
+                            val slopIdx = indexAt(slop.position.x)
+                            if (slopIdx != selIdx) {
+                                selIdx = slopIdx
+                                barTick()
+                            }
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -281,22 +310,25 @@ fun Hero(
             Spacer(Modifier.height(6.dp))
             val sel = if (selIdx in s.dayCells.indices) s.dayCells[selIdx] else null
             Text(
-                if (sel == null) "Slide across the bars to see each day's spending."
+                if (sel == null) t("screen.dashboard.slideHint")
                 else "${
                     relativeDate(
                         sel.date,
                         s.today
                     )
-                } · " + if (sel.isFuture) "no spending yet" else "spent ${myr(sel.spent)}",
+                } · " + if (sel.isFuture) t("screen.dashboard.noSpendingYet") else t(
+                    "screen.dashboard.spent",
+                    "amount" to myr(sel.spent)
+                ),
                 fontSize = 11.sp,
                 color = cs.onSurfaceVariant,
             )
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                LegendDot(positive, "Under")
-                LegendDot(warning, "Near")
-                LegendDot(negative, "Over")
-                LegendDot(accent, "Today")
+                LegendDot(positive, t("hero.under"))
+                LegendDot(warning, t("hero.near"))
+                LegendDot(negative, t("hero.over2"))
+                LegendDot(accent, t("hero.today"))
             }
         }
     }
@@ -325,7 +357,7 @@ private fun StatBox(
     Column(
         modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(cs.surfaceVariant)
+            .background(innerSurfaceColor())
             .padding(12.dp),
     ) {
         Text(label, fontSize = 10.5.sp, letterSpacing = 0.4.sp, color = cs.onSurfaceVariant)
@@ -360,9 +392,9 @@ fun HealthBadge(s: LedgerState) {
     val warning = parseColor(s.theme.warning) ?: MaterialTheme.colorScheme.primary
     val negative = parseColor(s.theme.negative) ?: MaterialTheme.colorScheme.error
     val (color, text) = when {
-        s.todayRemaining < 0 -> negative to "● Over today"
-        s.dailyBudget > 0 && s.todayRemaining / s.dailyBudget < 0.2 -> warning to "● Near limit"
-        else -> positive to "● On track"
+        s.todayRemaining < 0 -> negative to "● " + t("screen.dashboard.overToday")
+        s.dailyBudget > 0 && s.todayRemaining / s.dailyBudget < 0.2 -> warning to "● " + t("screen.dashboard.nearLimit")
+        else -> positive to "● " + t("screen.dashboard.onTrack")
     }
     Badge(color) { Text(text, fontSize = 11.sp) }
 }

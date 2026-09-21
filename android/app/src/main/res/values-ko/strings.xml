@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">오늘의 허용액</string>
+    <string name="widget_no_data">시작하려면 Ledger를 여세요</string>
+    <string name="widget_no_budget">아직 예산이 설정되지 않았습니다</string>
+    <string name="widget_left">오늘 %1$s 남음</string>
+    <string name="widget_over">오늘 %1$s 초과</string>
+    <string name="widget_pie_label">원형 차트</string>
+    <string name="widget_pie_desc">이번 기간 카테고리별 지출</string>
+    <string name="widget_budget_label">예산 진행률</string>
+    <string name="widget_budget_desc">월 예산 대비 기간 지출</string>
+    <string name="widget_piggy_label">저금통</string>
+    <string name="widget_piggy_desc">저금통 목표 진행률</string>
+    <string name="widget_streak_label">기록 연속</string>
+    <string name="widget_streak_desc">연속으로 기록한 일수</string>
+</resources>

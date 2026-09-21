@@ -19,6 +19,7 @@ import HistoryCard from '../src/components/cards/HistoryCard';
 import PiggyCard from '../src/components/cards/PiggyCard';
 import AutoCard from '../src/components/cards/AutoCard';
 import BackupCard from '../src/components/cards/BackupCard';
+import StreakCard from '../src/components/cards/StreakCard';
 
 const noop = () => {};
 const set = noop;
@@ -103,6 +104,16 @@ export default () => {
       heatColors={prefs.heatColors} cur="MYR" balancesOn heroMode="daily"
       triggerPiggyTextureUpload={noop} triggerPiggySoundUpload={noop} showToast={noop}
       authUser={null} signInGoogle={noop} signOutGoogle={noop} syncError={false} syncErrorMsg="" lastSyncedAt={0} resetTheme={noop}/>,
+    <CustomizeDrawer key="travel" drawerTab="travel" setDrawerTab={set} onClose={noop} prefs={prefs}
+      persistPrefs={noop} isVideoWallpaper={false} triggerWallpaperUpload={noop} clearWallpaper={noop}
+      theme={theme} activePresetKey="mono" applyPreset={noop} updateColor={noop} updateCatColor={noop}
+      allFontOptions={FONT_OPTIONS} draftFontName="" setDraftFontName={set} addCustomFont={noop} removeCustomFont={noop}
+      triggerCardPanelUpload={noop} clearCardPanel={noop} resetCardOrder={noop}
+      cats={cats} categories={DEFAULT_CATS} removeCategory={noop} addCategory={noop}
+      newCatName="" setNewCatName={set} newCatGlyph="★" setNewCatGlyph={set}
+      heatColors={prefs.heatColors} cur="MYR" balancesOn heroMode="daily"
+      triggerPiggyTextureUpload={noop} triggerPiggySoundUpload={noop} showToast={noop}
+      authUser={null} signInGoogle={noop} signOutGoogle={noop} syncError={false} syncErrorMsg="" lastSyncedAt={0} resetTheme={noop}/>,
     <MoneyDrawer key="money" balancesOn moveMode="budget" setMoveMode={set} bankBalance={1000}
       topUpAmount="50" setTopUpAmount={set} topUpNote="" setTopUpNote={set} submitMoney={noop}
       topUps={[{ id: 't1', date: '2026-08-16', amount: 100, note: '' }]} MYR={MYR} today="2026-08-17"
@@ -157,6 +168,7 @@ export default () => {
       setAutoStart={set} autoNote="" setAutoNote={set} addAutomation={noop} cats={cats} balancesOn
       recurring={[]} runRecurring={noop} removeAutomation={noop} toggleAutomation={noop}
       nextRun={() => 'Due today'} MYR={MYR} today="2026-08-17"/>,
+    <StreakCard key="streak" streak={5} best={12} loggedToday grace={1}/>,
     <BackupCard key="backup" exportData={noop} exportCSV={noop} triggerImport={noop}
       settings={{ monthlyBudget: 600, periodDays: 30, startDate: '2026-08-01' }}
       setDraftBudget={set} setDraftDays={set} setDraftStartDate={set} setDraftBalance={set}

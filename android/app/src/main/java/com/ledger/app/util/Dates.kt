@@ -4,6 +4,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.min
 
 /** Date helpers — mirrors the web app's date utilities (ISO "yyyy-MM-dd" keys). */
 val ISO: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
@@ -11,6 +12,10 @@ val ISO: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 fun todayKey(d: LocalDate = LocalDate.now()): String = d.format(ISO)
 
 fun parseDate(s: String): LocalDate = LocalDate.parse(s)
+
+/** Parse a yyyy-MM-dd key, or null when it is blank/malformed. */
+fun parseDateOrNull(s: String?): LocalDate? =
+    s?.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 
 fun addDays(dateStr: String, n: Int): String = parseDate(dateStr).plusDays(n.toLong()).format(ISO)
 
@@ -59,10 +64,15 @@ fun groupLabel(dateStr: String, today: String): String {
 
 fun uid(): String = System.currentTimeMillis().toString() + (1000..9999).random()
 
-/** Advance a date by a frequency — used by automations. */
-fun advanceDate(d: LocalDate, freq: String): LocalDate = when (freq) {
+/* Advance a date by a frequency — used by automations.
+   Monthly rules stay anchored on `anchor`'s day-of-month (clamped per month), so a
+   rule that starts on the 31st doesn't permanently drift to the 28th after February. */
+fun advanceDate(d: LocalDate, freq: String, anchor: LocalDate = d): LocalDate = when (freq) {
     "weekly" -> d.plusWeeks(1)
-    "monthly" -> d.plusMonths(1) // LocalDate clamps (e.g. 31st → last day of month)
+    "monthly" -> {
+        val nextMonth = d.withDayOfMonth(1).plusMonths(1)
+        nextMonth.withDayOfMonth(min(anchor.dayOfMonth, nextMonth.lengthOfMonth()))
+    }
     else -> d.plusDays(1)
 }
 

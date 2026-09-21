@@ -48,7 +48,23 @@ data class GlassStyle(
     val refraction: Int = 24,
     val refractionHeight: Int = 12,
     val chromaticAberration: Float = 0f,
+    val innerOpacity: Int = 40, // fill opacity for panels nested inside a glass card
 )
+
+/**
+ * Fill for a panel nested inside a card (stat tiles, strip backgrounds, chips).
+ * Opaque on the themed surface normally, but frosted when "Liquid glass cards" is on
+ * so the card's glass shows through instead of a solid dark box. The strength of that
+ * frost is user-tunable via `innerOpacity` (0 = fully clear, 100 = solid).
+ */
+@Composable
+fun innerSurfaceColor(): Color {
+    val cs = MaterialTheme.colorScheme
+    val glass = LocalGlassStyle.current
+    if (!glass.enabled) return cs.surfaceVariant
+    val alpha = glass.innerOpacity.coerceIn(0, 100) / 100f
+    return if (alpha >= 1f) cs.surfaceVariant else cs.surfaceVariant.copy(alpha = alpha)
+}
 
 /** App-wide glass settings, provided once at the root so every card reads them. */
 val LocalGlassStyle = staticCompositionLocalOf { GlassStyle() }
@@ -158,6 +174,7 @@ fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
                         refraction = glass.refraction,
                         refractionHeight = glass.refractionHeight,
                         chromaticAberration = glass.chromaticAberration,
+                        innerOpacity = glass.innerOpacity,
                     )
                 ) { content() }
             } else {

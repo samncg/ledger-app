@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">Asignación de hoy</string>
+    <string name="widget_no_data">Abre Ledger para empezar</string>
+    <string name="widget_no_budget">Aún no hay presupuesto</string>
+    <string name="widget_left">%1$s restante hoy</string>
+    <string name="widget_over">%1$s de más hoy</string>
+    <string name="widget_pie_label">Gráfico circular</string>
+    <string name="widget_pie_desc">Gasto por categoría en este periodo</string>
+    <string name="widget_budget_label">Progreso del presupuesto</string>
+    <string name="widget_budget_desc">Gasto del periodo frente a tu presupuesto mensual</string>
+    <string name="widget_piggy_label">Hucha</string>
+    <string name="widget_piggy_desc">Progreso hacia tu meta de la hucha</string>
+    <string name="widget_streak_label">Racha de registro</string>
+    <string name="widget_streak_desc">Días registrados seguidos</string>
+</resources>

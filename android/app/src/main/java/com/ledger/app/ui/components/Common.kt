@@ -1,5 +1,6 @@
 package com.ledger.app.ui.components
 
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -65,18 +67,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kashif_e.backdrop.BackdropEffectScope
+import com.kashif_e.backdrop.backdrops.LayerBackdrop
+import com.kashif_e.backdrop.drawPlainBackdrop
+import com.kashif_e.backdrop.effects.progressiveBlur
 import com.ledger.app.ui.parseColor
+import com.ledger.app.ui.t
 import com.ledger.app.util.dateKeyFromMillis
 import com.ledger.app.util.millisFromDateKey
 import com.ledger.app.util.monthLabel
@@ -115,7 +126,7 @@ fun MonthSelector(
         ) {
             Icon(
                 Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
-                "Previous month",
+                t("app.prevMonth"),
                 Modifier.size(18.dp),
                 tint = cs.onSurfaceVariant
             )
@@ -137,7 +148,7 @@ fun MonthSelector(
             modifier = Modifier.size(28.dp),
         ) {
             Icon(
-                Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next month", Modifier.size(18.dp),
+                Icons.AutoMirrored.Outlined.KeyboardArrowRight, t("app.nextMonth"), Modifier.size(18.dp),
                 tint = if (monthOffset > 0) cs.onSurfaceVariant else cs.outlineVariant,
             )
         }
@@ -160,7 +171,7 @@ fun Btn(
     val tick = rememberHapticTick()
     val colors = when (variant) {
         "secondary" -> ButtonDefaults.buttonColors(
-            containerColor = cs.surfaceVariant,
+            containerColor = innerSurfaceColor(),
             contentColor = cs.onSurfaceVariant
         )
 
@@ -324,7 +335,7 @@ fun SliderRow(
     onValueChange: (Float) -> Unit
 ) {
     val tick = rememberHapticTick()
-    var lastValue by remember { mutableStateOf(value) }
+    var lastValue by remember(value) { mutableStateOf(value) }
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontSize = 13.sp)
@@ -405,7 +416,7 @@ fun ColorPickerDialog(initial: String, onChange: (String) -> Unit, onDismiss: ()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Pick a color") },
+        title = { Text(t("app.pickColor")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 // Live preview
@@ -415,11 +426,11 @@ fun ColorPickerDialog(initial: String, onChange: (String) -> Unit, onDismiss: ()
                         .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                 )
                 Spacer(Modifier.height(10.dp))
-                Text("Hue", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("app.hue"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Slider(value = hue, valueRange = 0f..360f, onValueChange = { hue = it; applyHsv() })
-                Text("Saturation", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("app.saturation"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Slider(value = sat, valueRange = 0f..1f, onValueChange = { sat = it; applyHsv() })
-                Text("Brightness", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("app.brightness"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Slider(value = value, valueRange = 0f..1f, onValueChange = { value = it; applyHsv() })
                 Spacer(Modifier.height(10.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -445,8 +456,8 @@ fun ColorPickerDialog(initial: String, onChange: (String) -> Unit, onDismiss: ()
                 AppTextField(value = hex, onChange = { hex = it }, mono = true, placeholder = "#rrggbb")
             }
         },
-        confirmButton = { TextButton(onClick = { if (parseColor(hex) != null) onChange(hex) }) { Text("OK") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { if (parseColor(hex) != null) onChange(hex) }) { Text(t("app.ok")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("app.cancel")) } },
     )
 }
 
@@ -583,9 +594,9 @@ fun DateField(
             confirmButton = {
                 TextButton(onClick = {
                     onChange(dateKeyFromMillis(state.selectedDateMillis)); open = false
-                }) { Text("OK") }
+                }) { Text(t("app.ok")) }
             },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { open = false }) { Text(t("app.cancel")) } },
         ) {
             DatePicker(state = state)
         }
@@ -605,7 +616,7 @@ fun DateField(
 @Composable
 fun SmallChip(text: String) {
     val cs = MaterialTheme.colorScheme
-    Surface(shape = RoundedCornerShape(50), color = cs.surfaceVariant, contentColor = cs.onSurfaceVariant) {
+    Surface(shape = RoundedCornerShape(50), color = innerSurfaceColor(), contentColor = cs.onSurfaceVariant) {
         Text(
             text,
             Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -664,13 +675,18 @@ fun CardContainer(
 fun ToastOverlay(toast: com.ledger.app.ui.ToastMsg?, dotColor: Color, onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val coroutineScope = rememberCoroutineScope()
+    // `toast` is nulled the instant it starts exiting, so remember the last non-null one
+    // and animate the exit from that instead of rendering an empty subtree.
+    var lastToast by remember { mutableStateOf<com.ledger.app.ui.ToastMsg?>(null) }
+    if (toast != null) lastToast = toast
+    val shown = toast ?: lastToast
     AnimatedVisibility(
         visible = toast != null,
         enter = fadeIn() + slideInVertically { -it },
         exit = fadeOut() + slideOutVertically { -it },
     ) {
-        toast?.let { t ->
-            val offsetX = remember(t.id) { Animatable(0f) }
+        shown?.let { item ->
+            val offsetX = remember(item.id) { Animatable(0f) }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -678,7 +694,7 @@ fun ToastOverlay(toast: com.ledger.app.ui.ToastMsg?, dotColor: Color, onDismiss:
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                     .alpha((1f - (abs(offsetX.value) / 350f)).coerceIn(0f, 1f))
-                    .pointerInput(t.id) {
+                    .pointerInput(item.id) {
                         detectHorizontalDragGestures(
                             onDragEnd = {
                                 if (abs(offsetX.value) > 180f) {
@@ -715,15 +731,15 @@ fun ToastOverlay(toast: com.ledger.app.ui.ToastMsg?, dotColor: Color, onDismiss:
                 ) {
                     Box(Modifier.size(8.dp).background(dotColor, CircleShape))
                     Spacer(Modifier.width(10.dp))
-                    Text(t.msg, Modifier.weight(1f), fontSize = 13.sp)
-                    if (t.action != null) {
+                    Text(item.msg, Modifier.weight(1f), fontSize = 13.sp)
+                    if (item.action != null) {
                         Spacer(Modifier.width(10.dp))
                         TextButton(onClick = {
-                            t.action.run()
+                            item.action.run()
                             onDismiss()
                         }) {
                             Text(
-                                t.action.label,
+                                item.action.label,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = cs.primary
@@ -748,13 +764,13 @@ fun ConfirmDialog(req: com.ledger.app.ui.ConfirmReq?) {
         confirmButton = {
             TextButton(onClick = req.onConfirm) {
                 Text(
-                    "Confirm",
+                    t("app.confirm"),
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.Bold
                 )
             }
         },
-        dismissButton = { TextButton(onClick = req.onCancel) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = req.onCancel) { Text(t("app.cancel")) } },
     )
 }
 
@@ -768,4 +784,100 @@ fun EmptyState(glyph: String, title: String, sub: String) {
         Text(title, fontSize = 13.sp)
         Text(sub, fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/* ─── Progressive edge blur + fade ─── */
+
+/**
+ * Whether [ScreenEdgeBlur] can render the real progressive blur.
+ *
+ * It needs both the RenderEffect blur (Android 12 / API 31+) *and* the mask runtime shader
+ * (Android 13 / API 33+). Below 13 `progressiveBlur` silently skips the mask, which turns
+ * the band into a hard-edged, uniformly-blurred slab over the cards — that smears while
+ * scrolling, so those devices are better off with the fade on its own.
+ */
+val progressiveEdgeBlurSupported: Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+
+/**
+ * Blurs *and* fades the top and bottom edges of the scrolling content, so cards dissolve
+ * into the background instead of hard-clipping at the viewport edge.
+ *
+ * The blur is a real gaussian blur: [backdrop] must be the [LayerBackdrop] the scrolling
+ * content was captured into with `Modifier.layerBackdrop`. `progressiveBlur` masks it so it
+ * is strongest at the screen edge and fades to nothing further in, and a matching colour
+ * fade is layered on top so the edge also dissolves into the background.
+ *
+ * The colour fade is also what keeps the edge from flickering: the blurred band samples a
+ * copy of the list that is re-recorded every frame, so on a fast scroll it can lag the sharp
+ * cards by a frame — and that lag is most visible exactly where the fade is most opaque.
+ *
+ * Where [progressiveEdgeBlurSupported] is false the fade is drawn alone (no blur), so those
+ * devices get a clean gradient instead of an unmasked blur slab.
+ *
+ * Pass the same heights the list reserves as its top/bottom content padding, so content at
+ * rest sits exactly where both the blur and the fade have already reached zero.
+ * Draw it after the scrolling content and before the floating nav pill.
+ */
+@Composable
+fun BoxScope.ScreenEdgeBlur(
+    backdrop: LayerBackdrop,
+    topHeight: Dp,
+    bottomHeight: Dp,
+    radius: Dp = 24.dp,
+    fade: Float = 0.55f,
+) {
+    val bg = MaterialTheme.colorScheme.background
+    val blurPx = with(LocalDensity.current) { radius.toPx() }
+    // Remembered so the render effects are re-applied only when the radius changes,
+    // rather than on every recomposition.
+    val topEffects: BackdropEffectScope.() -> Unit =
+        remember(blurPx) { { progressiveBlur(blurRadius = blurPx, fadeStart = 1f, fadeEnd = 0f) } }
+    val bottomEffects: BackdropEffectScope.() -> Unit =
+        remember(blurPx) { { progressiveBlur(blurRadius = blurPx, fadeStart = 0f, fadeEnd = 1f) } }
+
+    /* Top — fully blurred and faded at the very top, sharp and clear at topHeight. */
+    Box(
+        Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth()
+            .height(topHeight)
+            .then(
+                if (progressiveEdgeBlurSupported) Modifier.drawPlainBackdrop(
+                    backdrop = backdrop,
+                    shape = { RectangleShape },
+                    effects = topEffects,
+                ) else Modifier
+            )
+            // Drawn over the blurred band (drawPlainBackdrop draws it first).
+            .background(
+                Brush.verticalGradient(
+                    0f to bg.copy(alpha = fade),
+                    0.45f to bg.copy(alpha = fade * 0.35f),
+                    1f to bg.copy(alpha = 0f),
+                )
+            )
+    )
+
+    /* Bottom — sharp and clear at the top of the band, blurred and faded at the screen edge. */
+    Box(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .height(bottomHeight)
+            .then(
+                if (progressiveEdgeBlurSupported) Modifier.drawPlainBackdrop(
+                    backdrop = backdrop,
+                    shape = { RectangleShape },
+                    effects = bottomEffects,
+                ) else Modifier
+            )
+            .background(
+                Brush.verticalGradient(
+                    0f to bg.copy(alpha = 0f),
+                    0.55f to bg.copy(alpha = fade * 0.35f),
+                    1f to bg.copy(alpha = fade),
+                )
+            )
+    )
 }

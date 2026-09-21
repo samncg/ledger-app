@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">今日の許容額</string>
+    <string name="widget_no_data">Ledger を開いて始めましょう</string>
+    <string name="widget_no_budget">予算がまだ設定されていません</string>
+    <string name="widget_left">今日は残り %1$s</string>
+    <string name="widget_over">今日は %1$s 超過</string>
+    <string name="widget_pie_label">円グラフ</string>
+    <string name="widget_pie_desc">今期のカテゴリ別支出</string>
+    <string name="widget_budget_label">予算の進捗</string>
+    <string name="widget_budget_desc">今期の支出と月間予算の比較</string>
+    <string name="widget_piggy_label">貯金箱</string>
+    <string name="widget_piggy_desc">貯金箱の目標への進み具合</string>
+    <string name="widget_streak_label">記録の連続</string>
+    <string name="widget_streak_desc">連続で記録した日数</string>
+</resources>

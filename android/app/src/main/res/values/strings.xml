@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Ledger</string>
+    <string name="widget_title">Today&#8217;s allowance</string>
+    <string name="widget_no_data">Open Ledger to get started</string>
+    <string name="widget_no_budget">No budget set yet</string>
+    <string name="widget_left">%1$s left today</string>
+    <string name="widget_over">%1$s over today</string>
+    <string name="widget_pie_label">Pie chart</string>
+    <string name="widget_pie_desc">Spending by category this period</string>
+    <string name="widget_budget_label">Budget progress</string>
+    <string name="widget_budget_desc">Period spend against your monthly budget</string>
+    <string name="widget_piggy_label">Piggy bank</string>
+    <string name="widget_piggy_desc">Progress towards your piggy bank goal</string>
+    <string name="widget_streak_label">Log streak</string>
+    <string name="widget_streak_desc">Days logged in a row</string>
 </resources>

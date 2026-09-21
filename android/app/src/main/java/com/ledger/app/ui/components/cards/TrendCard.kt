@@ -32,6 +32,7 @@ import com.ledger.app.ui.components.CatChip
 import com.ledger.app.ui.components.ChipFlow
 import com.ledger.app.ui.components.MonthSelector
 import com.ledger.app.ui.components.RangeTabs
+import com.ledger.app.ui.t
 import com.ledger.app.util.daysInMonth
 import com.ledger.app.util.fmt
 import com.ledger.app.util.monthEndKey
@@ -42,7 +43,12 @@ import com.ledger.app.util.parseDate
 fun TrendCard(vm: LedgerViewModel, s: LedgerState) {
     val heatmap = s.prefs.trendStyle == "heatmap"
     val ranges =
-        if (heatmap) listOf(30 to "30d", 90 to "90d", 365 to "1y") else listOf(7 to "7d", 14 to "14d", 30 to "30d")
+        if (heatmap) listOf(
+            30 to t("card.trend.range30d"),
+            90 to t("card.trend.range90d"),
+            365 to t("card.trend.range1y")
+        )
+        else listOf(7 to t("card.trend.range7d"), 14 to t("card.trend.range14d"), 30 to t("card.trend.range30d"))
     var range by remember { mutableStateOf(30) }
     var series by remember { mutableStateOf(listOf("__total__")) }
     var monthOffset by remember { mutableIntStateOf(0) }
@@ -60,7 +66,7 @@ fun TrendCard(vm: LedgerViewModel, s: LedgerState) {
     val data: TrendData = remember(s, effRange, series, end) { vm.trend(s, effRange, series, end) }
 
     CardContainer(
-        title = if (heatmap) "Spending heatmap" else "Spending trend",
+        title = if (heatmap) t("card.trend.titleHeatmap") else t("card.trend.title"),
         icon = Icons.Outlined.TrendingUp,
         trailing = {
             if (!browsingPast) {
@@ -77,7 +83,7 @@ fun TrendCard(vm: LedgerViewModel, s: LedgerState) {
         ) {
             MonthSelector(base = s.today, monthOffset = monthOffset) { monthOffset = it }
             if (browsingPast) {
-                Text("Full month", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("card.trend.fullMonth"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -85,7 +91,7 @@ fun TrendCard(vm: LedgerViewModel, s: LedgerState) {
             Heatmap(data.heat, s.prefs.heatColors, end) { fmt(it, s.cur) }
         } else {
             ChipFlow {
-                CatChip("Total", s.theme.accent, series.contains("__total__")) {
+                CatChip(t("card.trend.total"), s.theme.accent, series.contains("__total__")) {
                     toggle(series, "__total__") {
                         series = it
                     }
@@ -96,7 +102,7 @@ fun TrendCard(vm: LedgerViewModel, s: LedgerState) {
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "Pick one or more — each category draws its own line.",
+                t("card.trend.pickOne"),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -105,9 +111,7 @@ fun TrendCard(vm: LedgerViewModel, s: LedgerState) {
             ChartLegend(
                 items = data.series.map { it.color to it.label } +
                         if (s.dailyBudget > 0) listOf(
-                            s.theme.warning to "Allowance (${
-                                fmt(s.dailyBudget, s.cur)
-                            })"
+                            s.theme.warning to t("card.trend.allowance", "amount" to fmt(s.dailyBudget, s.cur))
                         ) else emptyList(),
             )
         }

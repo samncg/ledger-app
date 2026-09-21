@@ -54,8 +54,10 @@ import com.ledger.app.ui.components.DateField
 import com.ledger.app.ui.components.FieldLabel
 import com.ledger.app.ui.components.SectionDesc
 import com.ledger.app.ui.components.SelectField
+import com.ledger.app.ui.Strings
 import com.ledger.app.ui.components.ToastOverlay
 import com.ledger.app.ui.parseColor
+import com.ledger.app.ui.t
 import com.ledger.app.util.CURRENCIES
 import com.ledger.app.util.daysInMonth
 import com.ledger.app.util.firstOfMonthKey
@@ -81,7 +83,7 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
                 val error = vm.importData(text)
                 if (error != null) vm.showToast(error, "error")
             } catch (e: Exception) {
-                vm.showToast("Couldn't read that file.", "error")
+                vm.showToast(t("app.couldntReadFile"), "error")
             }
         }
     }
@@ -96,13 +98,19 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
             if (idToken != null) {
                 vm.signInWithGoogleToken(idToken)
             } else {
-                vm.showToast("Couldn't retrieve Google ID token.", "error")
+                vm.showToast(t("app.googleIdTokenError"), "error")
             }
         } catch (e: ApiException) {
             if (e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CANCELLED) {
-                vm.showToast("Sign-in cancelled.", "info")
+                vm.showToast(t("app.signInCancelled"), "info")
             } else {
-                vm.showToast("Google sign-in error (${e.statusCode}): ${e.localizedMessage ?: ""}", "error")
+                vm.showToast(
+                    t(
+                        "app.googleSignInError",
+                        "code" to e.statusCode,
+                        "message" to (e.localizedMessage ?: "")
+                    ), "error"
+                )
             }
         }
     }
@@ -126,18 +134,28 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
                 Text("L", color = cs.onPrimary, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
             }
             Spacer(Modifier.height(16.dp))
-            Text("Welcome to Ledger", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(t("setup.welcome"), fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Text(
-                if (s.balancesOn) "Set a bank balance, track your daily allowance,\nand bank whatever you don't spend each day."
-                else "Set your budget, track your daily allowance,\nand carry over what you don't spend.",
+                if (s.balancesOn) t("setup.introBalance")
+                else t("setup.intro"),
                 fontSize = 13.sp, textAlign = TextAlign.Center, color = cs.onSurfaceVariant,
             )
             Spacer(Modifier.height(24.dp))
 
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                /* Language first, so the rest of this screen reads in the chosen language. */
                 Column {
-                    FieldLabel("Budget amount")
+                    FieldLabel(t("pref.language"))
+                    Spacer(Modifier.height(6.dp))
+                    SelectField(
+                        value = s.prefs.lang, modifier = Modifier.fillMaxWidth(),
+                        options = Strings.LANGS,
+                        onChange = { vm.setLanguage(it) },
+                    )
+                }
+                Column {
+                    FieldLabel(t("setup.budgetAmount"))
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SelectField(
@@ -157,7 +175,7 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
                 }
                 if (s.balancesOn) {
                     Column {
-                        FieldLabel("Starting bank balance")
+                        FieldLabel(t("setup.startingBankBalance"))
                         Spacer(Modifier.height(6.dp))
                         AppTextField(
                             value = balance,
@@ -168,11 +186,11 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
                             numeric = true
                         )
                         Spacer(Modifier.height(4.dp))
-                        SectionDesc("The money you have right now — you can move it into your budget whenever you need it.")
+                        SectionDesc(t("setup.startingBankBalanceDesc"))
                     }
                 }
                 Column {
-                    FieldLabel("Period length (days)")
+                    FieldLabel(t("setup.periodDays"))
                     Spacer(Modifier.height(6.dp))
                     AppTextField(
                         value = days,
@@ -184,7 +202,7 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
                     )
                 }
                 Column {
-                    FieldLabel("Start date")
+                    FieldLabel(t("setup.startDate"))
                     Spacer(Modifier.height(6.dp))
                     DateField(value = startDate, onChange = { startDate = it }, maxDate = s.today)
                 }
@@ -192,7 +210,7 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
 
             Spacer(Modifier.height(18.dp))
             Btn(
-                "Start tracking",
+                t("setup.startTracking"),
                 onClick = { vm.saveSetup(budget, days, startDate, currency, balance) },
                 modifier = Modifier.fillMaxWidth(),
                 icon = Icons.Outlined.Add
@@ -200,12 +218,12 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
 
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f).height(1.dp).background(cs.outline))
-                Text("or", Modifier.padding(horizontal = 10.dp), fontSize = 11.sp, color = cs.onSurfaceVariant)
+                Text(t("setup.or"), Modifier.padding(horizontal = 10.dp), fontSize = 11.sp, color = cs.onSurfaceVariant)
                 Box(Modifier.weight(1f).height(1.dp).background(cs.outline))
             }
 
             Btn(
-                "Restore from a backup",
+                t("setup.restore"),
                 onClick = { importLauncher.launch(arrayOf("*/*")) },
                 variant = "ghost",
                 modifier = Modifier.fillMaxWidth(),
@@ -215,7 +233,7 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
             if (s.isFirebaseConfigured) {
                 Spacer(Modifier.height(8.dp))
                 Btn(
-                    "Sign in with Google",
+                    t("app.signInWithGoogle"),
                     onClick = {
                         findActivity(context)?.let { vm.signInGoogle(it, googleSignInLauncher) }
                     },
@@ -226,7 +244,7 @@ fun SetupScreen(vm: LedgerViewModel, s: LedgerState) {
             }
 
             Spacer(Modifier.height(10.dp))
-            SectionDesc("Already have a ledger-backup .json file or cloud account? Load it to pick up right where you left off.")
+            SectionDesc(t("setup.restoreDesc"))
             Spacer(Modifier.height(24.dp))
         }
 

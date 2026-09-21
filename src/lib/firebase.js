@@ -64,7 +64,7 @@ export const setLastSync=(uid,t)=>{const o=store.get("ledger-synclast2")||{};o[u
 /* Wallpaper / card-panel / piggy-texture / piggy-sound files are base64 and can
    exceed Firestore's 1 MiB document limit, so they — and their settings (dim,
    blur, panel strength) — stay device-local and never sync. */
-export const sanitizePrefs=p=>{const clean={...p};delete clean.wallpaper;delete clean.wallpaperDim;delete clean.wallBlur;delete clean.cardPanel;delete clean.cardPanelOpacity;delete clean.piggyTexture;delete clean.piggySoundCustom;return clean};
+export const sanitizePrefs=p=>{const clean={...p};delete clean.wallpaper;delete clean.wallpaperDim;delete clean.wallBlur;delete clean.cardPanel;delete clean.cardPanelOpacity;delete clean.piggyTexture;delete clean.piggySoundCustom;delete clean.appLock;return clean};
 /* Strip undefined values (Firestore rejects them) — imported backups or older
    entries can carry undefined fields. */
 export const firestoreSafe=o=>{

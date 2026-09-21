@@ -80,6 +80,12 @@ export const PREF_DEFAULTS={
   overspendFromBalance:false, // true = overspends drain the bank balance, false = covered by monthly budget
   heroMode:'daily',     // 'daily' = hero shows today's allowance, 'balance' = hero shows bank balance
   piggyTexture:null,piggySound:true,piggySoundId:'coin',piggySoundCustom:null,
+  budgetAlerts:true, // in-app alerts at 80% / 100% of category and monthly budgets
+  appLock:false,     // require a PIN to open the app
+  streakGrace:0,     // missed days forgiven inside a spend streak (0 = off)
+  edgeBlur:true,     // progressive blur+fade at the top and bottom of the app (Android)
+  lang:'en',         // UI language: en | es | zh | ru | th | ja | ko
+  travel:{active:false,name:'',currency:'USD',rate:1,start:'',rateAuto:true,rateUpdatedAt:''}, // travel mode — log in a foreign currency
 };
 
-export const DEFAULT_CARD_ORDER=['log','breakdown','trend','history','auto','piggy','backup'];
+export const DEFAULT_CARD_ORDER=['log','breakdown','trend','history','insights','streak','auto','piggy','backup'];

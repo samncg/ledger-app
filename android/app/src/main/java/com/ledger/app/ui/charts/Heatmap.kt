@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,7 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ledger.app.ui.HeatData
 import com.ledger.app.ui.parseColor
+import com.ledger.app.ui.t
 import com.ledger.app.util.relativeDate
+import kotlinx.coroutines.flow.first
 import kotlin.math.floor
 import kotlin.math.min
 
@@ -58,9 +61,12 @@ fun Heatmap(
             ((availableGridWidth - gap * (weeks - 1)) / weeks).coerceIn(11.dp, 24.dp)
         }
 
-        LaunchedEffect(weeks) {
+        LaunchedEffect(weeks, isScrollable) {
             if (isScrollable) {
-                scrollState.scrollTo(scrollState.maxValue)
+                // maxValue is 0 until the grid is actually laid out; scrolling before then
+                // would land on the oldest weeks. Wait for a real range first.
+                val max = snapshotFlow { scrollState.maxValue }.first { it > 0 }
+                scrollState.scrollTo(max)
             }
         }
 
@@ -125,16 +131,16 @@ fun Heatmap(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("Less", fontSize = 10.sp, color = cs.onSurfaceVariant)
+                Text(t("chart.less"), fontSize = 10.sp, color = cs.onSurfaceVariant)
                 listOf("l0", "l1", "l2", "l3", "l4").forEach { k ->
                     val bg = if (k == "l0" && (colors["l0"] ?: "transparent") == "transparent") Color.Transparent
                     else parseColor(colors[k]) ?: Color.Transparent
                     Box(Modifier.size(11.dp).clip(RoundedCornerShape(3.dp)).background(bg))
                 }
-                Text("More", fontSize = 10.sp, color = cs.onSurfaceVariant)
+                Text(t("chart.more"), fontSize = 10.sp, color = cs.onSurfaceVariant)
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "${myr(data.total)} spent",
+                    t("chart.spent", "amount" to myr(data.total)),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     color = cs.onSurfaceVariant

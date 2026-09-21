@@ -2,6 +2,7 @@ package com.ledger.app.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.runtime.getValue
@@ -19,9 +20,11 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.ledger.app.data.AppTheme
 import com.ledger.app.data.AuthUser
 import com.ledger.app.data.Balance
+import com.ledger.app.data.BudgetAlertState
 import com.ledger.app.data.Cat
 import com.ledger.app.data.Category
 import com.ledger.app.data.DayCell
+import com.ledger.app.data.cleanTags
 import com.ledger.app.data.Expense
 import com.ledger.app.data.FirebaseConfig
 import com.ledger.app.data.FirebaseManager
@@ -33,11 +36,15 @@ import com.ledger.app.data.Repository
 import com.ledger.app.data.Rule
 import com.ledger.app.data.Settings
 import com.ledger.app.data.TopUp
+import com.ledger.app.data.Travel
+import com.ledger.app.util.Fx
 import com.ledger.app.data.defaultCategories
 import com.ledger.app.data.expCats
+import com.ledger.app.data.sanitizeSettings
 import com.ledger.app.util.NotificationHelper
 import com.ledger.app.util.advanceDate
 import com.ledger.app.util.addDays
+import com.ledger.app.util.bitmapToReceiptDataUrl
 import com.ledger.app.util.dayDiff
 import com.ledger.app.util.daysInMonth
 import com.ledger.app.util.firstOfMonthKey
@@ -45,14 +52,17 @@ import com.ledger.app.util.fmt
 import com.ledger.app.util.groupLabel
 import com.ledger.app.util.monthLabel
 import com.ledger.app.util.parseDate
+import com.ledger.app.util.parseDateOrNull
 import com.ledger.app.util.relativeDate
 import com.ledger.app.util.todayKey
 import com.ledger.app.util.uid
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -68,6 +78,8 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.time.LocalDate
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -118,12 +130,28 @@ data class LedgerState(
     val projectedTotal: Double = 0.0,
     val projectedDelta: Double = 0.0,
     val streak: Int = 0,
+    /** Consecutive days with at least one logged expense. */
+    val spendStreak: Int = 0,
+    /** Longest such run ever — the streak card's best, so past runs aren't lost. */
+    val bestStreak: Int = 0,
+    val loggedToday: Boolean = false,
     val frequentEntries: List<FrequentEntry> = emptyList(),
+    /* travel mode */
+    val travel: Travel = Travel(),
+    val travelActive: Boolean = false,
+    /** Home-units-per-foreign-unit rate, or 0 when unset. */
+    val travelRate: Double = 0.0,
+    /** Entries logged since the trip started, newest first. */
+    val travelList: List<Expense> = emptyList(),
+    /** Note/token → category memory learned from the user's own expenses. */
+    val catMemory: CatMemory = CatMemory(),
     val authUser: AuthUser? = null,
     val syncError: Boolean = false,
     val syncErrorMsg: String = "",
     val lastSyncedAt: Long = 0L,
     val isFirebaseConfigured: Boolean = FirebaseConfig.isConfigured,
+    /** True when a stored blob couldn't be decoded — sync is paused to avoid overwriting it. */
+    val dataCorrupt: Boolean = false,
 ) {
     val activePiggy: Piggy get() = piggies.find { it.id == activePiggyId } ?: piggies.firstOrNull() ?: Piggy()
 }
@@ -171,6 +199,21 @@ data class TrendData(
     val heat: HeatData
 )
 
+/* ─── Monthly insights ─── */
+data class InsightsData(
+    val thisMonth: Double,
+    val lastMonth: Double,
+    val changePct: Double?,
+    val biggestCategoryLabel: String?,
+    val biggestCategoryDelta: Double,
+    val avgPerDay: Double,
+    val daysElapsed: Int,
+    val projected: Double,
+    val monthlyBudget: Double,
+    val bestDay: Pair<String, Double>?,
+    val worstDay: Pair<String, Double>?,
+)
+
 /* ─── History ─── */
 data class HistoryEntry(
     val type: String, // "expense" | "topup"
@@ -180,6 +223,10 @@ data class HistoryEntry(
     val note: String,
     val categories: List<String> = emptyList(),
     val category: String? = null,
+    val receipt: String? = null,
+    val tags: List<String> = emptyList(),
+    val currency: String? = null,
+    val foreignAmount: Double? = null,
 )
 
 data class HistoryGroup(val label: String?, val items: List<HistoryEntry>, val total: Double)
@@ -214,7 +261,23 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     var note by mutableStateOf("")
     var entryDate by mutableStateOf(todayKey())
     var selCats by mutableStateOf(listOf("food"))
+    var receipt by mutableStateOf<String?>(null)
+    var tags by mutableStateOf<List<String>>(emptyList())
+
+    /** "" | "loading" | "ok" | "ok:<date>" | "error" — the Travel tab's rate-sync state. */
+    var rateStatus by mutableStateOf("")
+        private set
     var editingId by mutableStateOf<String?>(null); private set
+
+    /* ─── Tags ─── */
+    fun addTag(v: String) {
+        val tag = cleanTags(listOf(v)).firstOrNull() ?: return
+        if (tag !in tags) tags = (tags + tag).take(8)
+    }
+
+    fun removeTag(tag: String) {
+        tags = tags.filter { it != tag }
+    }
 
     /* ─── Toast & confirm ─── */
     var toast by mutableStateOf<ToastMsg?>(null); private set
@@ -225,12 +288,20 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         selCats = listOf(id)
     }
 
+    /** Note editor — auto-picks a category from your history/keywords as you type. */
+    fun onNoteChange(v: String) {
+        note = v
+        if (editingId != null) return
+        val st = _state.value
+        val available = st.cats.map { it.id }.toSet()
+        suggestCategory(v, available, st.catMemory)?.let { if (selCats.firstOrNull() != it) selCats = listOf(it) }
+    }
+
     private var authListener: FirebaseAuth.AuthStateListener? = null
     private var snapshotListener: ListenerRegistration? = null
     private var pushJob: Job? = null
     private var lastPushedJson: String? = null
     private var lastSyncPushTime: Long = 0L
-    private var skipNextPush: Boolean = false
     private var syncedUid: String? = null
 
     init {
@@ -249,12 +320,17 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         if (rawExpenses != normalizedExpenses) {
             viewModelScope.launch { repo.saveExpenses(normalizedExpenses) }
         }
+        val rawSettings = d.settings
+        val safeSettings = rawSettings?.let { sanitizeSettings(it) }
+        if (safeSettings != null && safeSettings != rawSettings) {
+            viewModelScope.launch { repo.saveSettings(safeSettings) }
+        }
         var s = LedgerState(
             ready = true,
             theme = d.theme ?: DEFAULT_THEME,
             savedTheme = d.savedTheme,
             prefs = d.prefs ?: Prefs(),
-            settings = d.settings,
+            settings = safeSettings,
             expenses = normalizedExpenses,
             categories = d.categories ?: defaultCategories(),
             catBudgets = d.catBudgets ?: emptyMap(),
@@ -264,18 +340,27 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             piggies = d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy()),
             activePiggyId = (d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy())).first().id,
             recurring = d.recurring ?: emptyList(),
+            dataCorrupt = d.corruptKeys.isNotEmpty(),
         )
         val materialized = runRecurring(s)
         if (materialized != null) s = materialized
         s = syncMonthlyPeriod(s)
         _state.value = computeDerived(s)
         if (materialized != null) persistSliceChanges(materialized)
-        // Push any period rollover so the cloud doesn't keep the stale start date.
-        triggerDebouncedPush()
+        if (d.corruptKeys.isNotEmpty()) {
+            // A corrupt blob decodes to null; treat that as "present but unreadable" rather
+            // than "absent" so it isn't silently overwritten with defaults / cloud data.
+            val which = d.corruptKeys.joinToString(", ") { it.removePrefix("ledger-") }
+            showToast(t("toast.corruptData", "keys" to which), "error")
+        } else {
+            // Push any period rollover so the cloud doesn't keep the stale start date.
+            triggerDebouncedPush()
+        }
 
         if (s.prefs.notificationsEnabled) {
             NotificationHelper.scheduleDailyReminder(repo.appContext, s.prefs.reminderHour, s.prefs.reminderMinute)
         }
+        checkBudgetAlerts()
     }
 
     /** Keep the budget period equal to the current calendar month: realign the start to
@@ -285,7 +370,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val today = parseDate(todayKey())
         val real = daysInMonth(today)
         val firstToday = firstOfMonthKey(today)
-        val firstStart = firstOfMonthKey(parseDate(settings.startDate))
+        val firstStart = firstOfMonthKey(parseDateOrNull(settings.startDate) ?: today)
         // If we've crossed into a new month, the old period is stale — roll it over.
         val needRealign = firstStart != firstToday
         if (!needRealign && settings.periodDays == real) return s
@@ -317,7 +402,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             val today = parseDate(todayKey())
             val real = daysInMonth(today)
             val firstToday = firstOfMonthKey(today)
-            val firstStart = firstOfMonthKey(parseDate(settings.startDate))
+            val firstStart = firstOfMonthKey(parseDateOrNull(settings.startDate) ?: today)
             val needRealign = firstStart != firstToday
             if (needRealign || settings.periodDays != real) {
                 val next = settings.copy(
@@ -335,6 +420,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     private fun computeDerived(s: LedgerState): LedgerState {
         val today = todayKey()
         val cur = s.prefs.currency.ifEmpty { "MYR" }
+        /* Keep the string table in step with the pref before anything renders. */
+        Strings.setLang(s.prefs.lang)
         val balancesOn = s.prefs.balancesEnabled
         val heroMode = if (balancesOn && s.prefs.heroMode == "balance") "balance" else "daily"
         val cats = s.categories.map { Cat(it.id, it.label, it.glyph, s.theme.catColors[it.id] ?: "#7c8896") }
@@ -346,18 +433,18 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val (dayCells, elapsedDays, runningBalance) = if (s.settings == null) {
             Triple(emptyList<DayCell>(), 0, 0.0)
         } else {
-            val elapsed =
-                (dayDiff(s.settings.startDate, today) + 1).coerceIn(1L, s.settings.periodDays.toLong()).toInt()
             var running = 0.0
             val cells = (0 until s.settings.periodDays).map { i ->
                 val date = addDays(s.settings.startDate, i)
-                val isFuture = i >= elapsed
+                // A day is future if its date is after today, so a start date in the
+                // future doesn't pull a not-yet-started day into spend/pace/streak maths.
+                val isFuture = date > today
                 val spent = spentByDay[date] ?: 0.0
                 val delta = if (isFuture) 0.0 else dailyBudget - spent
                 if (!isFuture) running += delta
                 DayCell(date, spent, delta, isFuture, date == today)
             }
-            Triple(cells, elapsed, running)
+            Triple(cells, cells.count { !it.isFuture }, running)
         }
 
         val todaySpent = spentByDay[today] ?: 0.0
@@ -383,7 +470,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val todaySaved = max(0.0, todayRemaining)
         val activePiggy = s.piggies.find { it.id == s.activePiggyId } ?: s.piggies.firstOrNull() ?: Piggy()
         val piggyPct = if (activePiggy.target > 0) min(100.0, activePiggy.saved / activePiggy.target * 100) else 0.0
-        val heroLabel = if (heroMode == "balance") "Balance" else "Available today"
+        val heroLabel = if (heroMode == "balance") t("hero.labelBalance") else t("hero.labelAvailable")
         val heroValue = if (heroMode == "balance") bankBalance else todayRemaining
         val periodSpent = dayCells.filter { !it.isFuture }.sumOf { it.spent }
         val budgetPctFull =
@@ -406,6 +493,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             .sortedWith(compareByDescending<FrequentEntry> { it.count }.thenByDescending { it.last })
             .take(4)
 
+        /* History-aware category memory for the log form's auto-pick. */
+        val catMemory = buildCategoryMemory(s.expenses)
+
         val streak = if (s.settings == null) 0 else {
             var c = 0
             for (cell in dayCells.filter { !it.isFuture }.asReversed()) {
@@ -413,6 +503,56 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             }
             c
         }
+
+        /* Daily spend streak — consecutive days with at least one logged expense.
+           `spendStreak` stays alive until a whole day is missed (today not being logged
+           yet doesn't break it); `bestStreak` is the longest run ever. */
+        val spendDays = s.expenses.map { it.date }.toHashSet()
+        val loggedToday = today in spendDays
+        /* A grace day forgives missed days inside a run — `grace` is the total number
+           of skipped days tolerated in one streak, so a 2-day gap needs grace 2. */
+        val grace = s.prefs.streakGrace.coerceAtLeast(0)
+        var spendStreak = 0
+        var cursor = if (loggedToday) today else addDays(today, -1)
+        var misses = 0
+        while (true) {
+            if (cursor in spendDays) {
+                spendStreak++
+                cursor = addDays(cursor, -1)
+            } else if (misses < grace) {
+                misses++
+                cursor = addDays(cursor, -1)
+            } else break
+        }
+        var bestStreak = 0
+        for (day in spendDays) {
+            if (addDays(day, 1) in spendDays) continue // only measure from the end of a run
+            var n = 0
+            var cur = day
+            var m = 0
+            while (true) {
+                if (cur in spendDays) {
+                    n++
+                    cur = addDays(cur, -1)
+                } else if (m < grace) {
+                    m++
+                    cur = addDays(cur, -1)
+                } else break
+            }
+            if (n > bestStreak) bestStreak = n
+        }
+
+        /* Travel mode — the trip page lists entries tagged "travel" since the trip
+           started. `amount` is always the home-currency figure; `foreignAmount` is
+           display-only, so budgets and statistics need no special casing. */
+        val travel = s.prefs.travel
+        val travelRate = if (travel.rate > 0) travel.rate else 0.0
+        val travelActive = travel.active && travel.currency.isNotEmpty()
+        val travelList =
+            if (travelActive) s.expenses.filter {
+                "travel" in it.tags && (travel.start.isEmpty() || it.date >= travel.start)
+            }.sortedByDescending { it.date }
+            else emptyList()
 
         return s.copy(
             cats = cats, cur = cur, balancesOn = balancesOn, heroMode = heroMode, today = today,
@@ -423,7 +563,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             piggyPct = piggyPct,
             periodSpent = periodSpent, budgetPctFull = budgetPctFull, avgDailySpend = avgDailySpend,
             daysOver = daysOver, projectedTotal = projectedTotal, projectedDelta = projectedDelta,
-            streak = streak, frequentEntries = frequentEntries,
+            streak = streak, spendStreak = spendStreak, bestStreak = bestStreak, loggedToday = loggedToday,
+            travel = travel, travelActive = travelActive, travelRate = travelRate, travelList = travelList,
+            frequentEntries = frequentEntries, catMemory = catMemory,
         )
     }
 
@@ -455,9 +597,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val avgPerDay = totalSpent / rangeDays
         val topCategory = s.cats.filter { (totals[it.id] ?: 0.0) > 0 }.maxByOrNull { totals[it.id] ?: 0.0 }
         val rangeLabel = when (range) {
-            "period" -> "this budget period"; "week" -> "the last 7 days"
-            "month" -> monthLabel(end, 0); "all" -> "all logged history"
-            else -> "the selected range"
+            "period" -> t("card.breakdown.rangeLabelPeriod"); "week" -> t("card.breakdown.rangeLabelWeek")
+            "month" -> monthLabel(end, 0); "all" -> t("card.breakdown.rangeLabelAll")
+            else -> t("card.breakdown.rangeLabelCustom")
         }
         val pool = totals.values.sum()
         val pieSlices = if (pool <= 0) emptyList() else {
@@ -535,6 +677,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     fun history(
         s: LedgerState,
         filterCats: List<String>,
+        filterTags: List<String>,
         search: String,
         dateFrom: String,
         dateTo: String,
@@ -542,10 +685,27 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         group: Boolean,
     ): HistoryData {
         var list: List<HistoryEntry> =
-            s.expenses.map { HistoryEntry("expense", it.id, it.date, it.amount, it.note, it.categories, it.category) } +
+            s.expenses.map {
+                HistoryEntry(
+                    "expense",
+                    it.id,
+                    it.date,
+                    it.amount,
+                    it.note,
+                    it.categories,
+                    it.category,
+                    it.receipt,
+                    it.tags,
+                    it.currency,
+                    it.foreignAmount,
+                )
+            } +
                     s.topUps.map { HistoryEntry("topup", it.id, it.date, it.amount, it.note) }
         if (filterCats.isNotEmpty()) {
             list = list.filter { it.type == "expense" && entryCats(it).any { c -> filterCats.contains(c) } }
+        }
+        if (filterTags.isNotEmpty()) {
+            list = list.filter { it.type == "expense" && it.tags.any { tg -> filterTags.contains(tg) } }
         }
         if (search.isNotBlank()) {
             val q = search.trim().lowercase()
@@ -554,7 +714,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                     e.note.lowercase().contains(q) || "move to budget".contains(q) ||
                             "top up".contains(q) || "return to balance".contains(q)
                 } else {
-                    e.note.lowercase().contains(q) || entryCats(e).any { it.lowercase().contains(q) }
+                    e.note.lowercase().contains(q) || entryCats(e).any { it.lowercase().contains(q) } ||
+                            e.tags.any { it.lowercase().contains(q) }
                 }
             }
         }
@@ -570,7 +731,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val toppedTotal = list.filter { it.type == "topup" }.sumOf { it.amount }
         val activeFilterCount =
             (if (search.isNotBlank()) 1 else 0) + (if (dateFrom.isNotEmpty() || dateTo.isNotEmpty()) 1 else 0) +
-                    (if (sort != "date-desc") 1 else 0) + filterCats.size
+                    (if (sort != "date-desc") 1 else 0) + filterCats.size + filterTags.size
 
         val groups: List<HistoryGroup> = if (!group || sort.startsWith("amount")) {
             listOf(HistoryGroup(null, list, 0.0))
@@ -594,6 +755,20 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
     /* ─── Automations (recurring entries) ─── */
 
+    /**
+     * Cursor (date key) the next occurrences are generated from. Tolerates blank or
+     * malformed rule dates (from a backup / Firestore) by falling back to today, and
+     * keeps monthly rules anchored on the original start day-of-month.
+     */
+    private fun ruleCursor(r: Rule, today: String): String {
+        val last = r.last
+        if (last != null) {
+            val lastDate = parseDateOrNull(last) ?: return today
+            return todayKey(advanceDate(lastDate, r.freq, parseDateOrNull(r.start) ?: lastDate))
+        }
+        return parseDateOrNull(r.start)?.let { todayKey(it) } ?: today
+    }
+
     /** Materialize any due recurring entries. Returns the new state if changed. */
     private fun runRecurring(s: LedgerState, rules: List<Rule> = s.recurring): LedgerState? {
         val today = todayKey()
@@ -603,14 +778,15 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         var changed = false
         val next = rules.map { r ->
             if (!r.active) return@map r
-            val from = r.last?.let { todayKey(advanceDate(parseDate(it), r.freq)) } ?: r.start.ifEmpty { today }
-            val cursor = parseDate(from)
+            val from = ruleCursor(r, today)
+            val cursor = parseDateOrNull(from) ?: return@map r
             val end = parseDate(today)
             if (cursor.isAfter(end)) return@map r
+            val step = parseDateOrNull(r.start) ?: cursor
             val occ = mutableListOf<String>()
             var cur = cursor
             while (!cur.isAfter(end)) {
-                occ.add(todayKey(cur)); cur = advanceDate(cur, r.freq)
+                occ.add(todayKey(cur)); cur = advanceDate(cur, r.freq, step)
             }
             for (day in occ) {
                 when (r.type) {
@@ -643,16 +819,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val materialized = runRecurring(_state.value) ?: return
         update { materialized }
         viewModelScope.launch { persistSliceChanges(materialized) }
-        showToast("Automated entries added.", "success")
+        showToast(t("toast.automatedEntriesAdded"), "success")
     }
 
     fun addAutomation(type: String, amountStr: String, catId: String, freq: String, start: String, note: String) {
         val v = amountStr.toDoubleOrNull() ?: return
         if (v <= 0) {
-            showToast("Enter a valid amount.", "error"); return
+            showToast(t("toast.invalidAmount"), "error"); return
         }
         if (start.isEmpty()) {
-            showToast("Pick a start date.", "error"); return
+            showToast(t("toast.pickStartDate"), "error"); return
         }
         val rule = Rule(
             uid(),
@@ -668,7 +844,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = _state.value.recurring + rule
         update { it.copy(recurring = next) }
         viewModelScope.launch { repo.saveRecurring(next) }
-        showToast("Automation added.", "success")
+        showToast(t("toast.automationAdded"), "success")
         val materialized = runRecurring(_state.value, next) // backfill occurrences up to today
         if (materialized != null) {
             update { materialized }
@@ -681,11 +857,11 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = _state.value.recurring.filter { it.id != id }
         update { it.copy(recurring = next) }
         viewModelScope.launch { repo.saveRecurring(next) }
-        if (removed != null) showToast("Automation removed.", "info", ToastAction("Undo") {
+        if (removed != null) showToast(t("toast.automationRemoved"), "info", ToastAction(t("toast.actionUndo")) {
             val restored = _state.value.recurring + removed
             update { it.copy(recurring = restored) }
             viewModelScope.launch { repo.saveRecurring(restored) }
-            showToast("Restored.", "success")
+            showToast(t("toast.restored"), "success")
         })
     }
 
@@ -705,13 +881,13 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     }
 
     fun nextRun(r: Rule): String {
-        if (!r.active) return "Paused"
-        val from = r.last?.let { todayKey(advanceDate(parseDate(it), r.freq)) } ?: r.start.ifEmpty { _state.value.today }
+        if (!r.active) return t("card.auto.paused")
+        val from = ruleCursor(r, _state.value.today)
         val diff = dayDiff(_state.value.today, from)
         return when {
-            diff <= 0 -> "Due today"
-            diff == 1L -> "Tomorrow"
-            else -> "in ${diff}d"
+            diff <= 0 -> t("card.auto.dueToday")
+            diff == 1L -> t("card.auto.tomorrow")
+            else -> t("card.auto.inDays", "n" to diff)
         }
     }
 
@@ -722,13 +898,13 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val budget = budgetStr.toDoubleOrNull()
         val days = daysStr.toIntOrNull()
         if (budget == null || budget < 0 || days == null || days <= 0) {
-            showToast("Enter a valid amount and period.", "error"); return
+            showToast(t("toast.invalidAmountPeriod"), "error"); return
         }
         var bal: Double? = null
         if (s.balancesOn) {
             bal = if (balanceStr.isBlank()) null else balanceStr.toDoubleOrNull()
             if (bal != null && (bal.isNaN() || bal < 0)) {
-                showToast("Enter a valid balance.", "error"); return
+                showToast(t("toast.invalidBalance"), "error"); return
             }
         }
         val settings = Settings(budget, days, startDate.ifEmpty { firstOfMonthKey() })
@@ -743,7 +919,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         viewModelScope.launch {
             repo.saveSettings(settings); repo.savePrefs(prefs); repo.saveBalance(balance)
         }
-        showToast(if (s.settings != null) "Budget updated." else "Budget saved. Start tracking!", "success")
+        showToast(if (s.settings != null) t("toast.budgetUpdated") else t("toast.budgetSaved"), "success")
     }
 
     /* ─── Move money & balance ─── */
@@ -761,18 +937,18 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val s = _state.value
         val v = amountStr.toDoubleOrNull() ?: return
         if (v <= 0) {
-            showToast(if (s.balancesOn) "Enter a valid amount." else "Enter a valid top-up amount.", "error"); return
+            showToast(if (s.balancesOn) t("toast.invalidAmount") else t("toast.invalidTopUpAmount"), "error"); return
         }
         if (s.balancesOn && v > s.bankBalance) {
-            showToast("Not enough balance — move at most ${fmt(s.bankBalance, s.cur)}.", "error"); return
+            showToast(t("toast.notEnoughForMove", "amount" to fmt(s.bankBalance, s.cur)), "error"); return
         }
         val entry = TopUp(uid(), v, s.today, note.trim())
         val next = s.topUps + entry
         update { it.copy(topUps = next) }
         viewModelScope.launch { repo.saveTopUps(next) }
         showToast(
-            if (s.balancesOn) "Moved ${fmt(v, s.cur)} from your balance to this month's budget."
-            else "Topped up ${fmt(v, s.cur)} — added to your monthly budget.",
+            if (s.balancesOn) t("toast.movedToBudget", "amount" to fmt(v, s.cur))
+            else t("toast.toppedUp", "amount" to fmt(v, s.cur)),
             "success",
         )
     }
@@ -781,29 +957,29 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val s = _state.value
         val v = amountStr.toDoubleOrNull() ?: return
         if (v <= 0) {
-            showToast("Enter a valid amount.", "error"); return
+            showToast(t("toast.invalidAmount"), "error"); return
         }
         val next = s.balance.copy(start = s.balance.start + v)
         update { it.copy(balance = next) }
         viewModelScope.launch { repo.saveBalance(next) }
-        showToast("Added ${fmt(v, s.cur)} to your balance.", "success")
+        showToast(t("toast.addedToBalance", "amount" to fmt(v, s.cur)), "success")
     }
 
     private fun returnToBalance(amountStr: String, note: String) {
         val s = _state.value
         val v = amountStr.toDoubleOrNull() ?: return
         if (v <= 0) {
-            showToast("Enter a valid amount.", "error"); return
+            showToast(t("toast.invalidAmount"), "error"); return
         }
         if (s.topUpTotal <= 0) {
             showToast(
-                "Nothing to return — you haven't moved money to the budget. Please move some first.",
+                t("toast.nothingToReturn"),
                 "error"
             ); return
         }
         if (v > s.topUpTotal) {
             showToast(
-                "Can't return more than the ${fmt(s.topUpTotal, s.cur)} you moved to the budget.",
+                t("toast.returnTooMuch", "amount" to fmt(s.topUpTotal, s.cur)),
                 "error"
             ); return
         }
@@ -811,25 +987,25 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = s.topUps + entry
         update { it.copy(topUps = next) }
         viewModelScope.launch { repo.saveTopUps(next) }
-        showToast("Returned ${fmt(v, s.cur)} from your budget to your balance.", "success")
+        showToast(t("toast.returnedToBalance", "amount" to fmt(v, s.cur)), "success")
     }
 
     private fun withdrawFromBalance(amountStr: String) {
         val s = _state.value
         val v = amountStr.toDoubleOrNull() ?: return
         if (v <= 0) {
-            showToast("Enter a valid amount.", "error"); return
+            showToast(t("toast.invalidAmount"), "error"); return
         }
         if (s.bankBalance <= 0) {
-            showToast("Nothing to withdraw — your balance is empty. Move money into it first.", "error"); return
+            showToast(t("toast.nothingToWithdraw"), "error"); return
         }
         if (v > s.bankBalance) {
-            showToast("Not enough balance — withdraw at most ${fmt(s.bankBalance, s.cur)}.", "error"); return
+            showToast(t("toast.notEnoughForWithdraw", "amount" to fmt(s.bankBalance, s.cur)), "error"); return
         }
         val next = s.balance.copy(start = s.balance.start - v)
         update { it.copy(balance = next) }
         viewModelScope.launch { repo.saveBalance(next) }
-        showToast("Withdrew ${fmt(v, s.cur)} from your balance.", "success")
+        showToast(t("toast.withdrewFromBalance", "amount" to fmt(v, s.cur)), "success")
     }
 
     fun removeTopUp(id: String) {
@@ -838,11 +1014,11 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = s.topUps.filter { it.id != id }
         update { it.copy(topUps = next) }
         viewModelScope.launch { repo.saveTopUps(next) }
-        if (removed != null) showToast("Transfer removed.", "info", ToastAction("Undo") {
+        if (removed != null) showToast(t("toast.transferRemoved"), "info", ToastAction(t("toast.actionUndo")) {
             val restored = s.topUps.filter { it.id != id } + removed
             update { it.copy(topUps = restored) }
             viewModelScope.launch { repo.saveTopUps(restored) }
-            showToast("Restored.", "success")
+            showToast(t("toast.restored"), "success")
         })
     }
 
@@ -867,7 +1043,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = s.piggies + newPiggy
         update { it.copy(piggies = next, activePiggyId = newId) }
         viewModelScope.launch { repo.savePiggies(next) }
-        showToast("Created ${newPiggy.name}.", "success")
+        showToast(t("toast.piggyCreated", "name" to newPiggy.name), "success")
     }
 
     fun renamePiggy(id: String, newName: String) {
@@ -875,29 +1051,32 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = s.piggies.map { if (it.id == id) it.copy(name = newName.ifBlank { it.name }) else it }
         update { it.copy(piggies = next) }
         viewModelScope.launch { repo.savePiggies(next) }
-        showToast("Piggy bank renamed.", "success")
+        showToast(t("toast.piggyRenamed"), "success")
     }
 
     fun savePiggyTarget(id: String, amountStr: String) {
         val s = _state.value
         val v = amountStr.toDoubleOrNull()
         if (v == null || v.isNaN() || v < 0) {
-            showToast("Enter a valid goal amount.", "error"); return
+            showToast(t("toast.invalidGoalAmount"), "error"); return
         }
         val next = s.piggies.map { if (it.id == id) it.copy(target = v) else it }
         update { it.copy(piggies = next) }
         viewModelScope.launch { repo.savePiggies(next) }
-        showToast(if (v > 0) "Savings goal set to ${fmt(v, s.cur)}." else "Savings goal cleared.", "success")
+        showToast(
+            if (v > 0) t("toast.savingsGoalSet", "amount" to fmt(v, s.cur)) else t("toast.savingsGoalCleared"),
+            "success"
+        )
     }
 
     fun depositPiggy(id: String, amountStr: String) {
         val s = _state.value
         val v = amountStr.toDoubleOrNull() ?: return
         if (v <= 0) {
-            showToast("Enter a valid amount.", "error"); return
+            showToast(t("toast.invalidAmount"), "error"); return
         }
         if (v > s.bankBalance) {
-            showToast("Not enough balance — add at most ${fmt(s.bankBalance, s.cur)}.", "error"); return
+            showToast(t("toast.notEnoughForAdd", "amount" to fmt(s.bankBalance, s.cur)), "error"); return
         }
         val targetPiggy = s.piggies.find { it.id == id } ?: s.activePiggy
         val prev = targetPiggy.saved
@@ -906,9 +1085,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = s.piggies.map { if (it.id == targetPiggy.id) it.copy(saved = saved) else it }
         update { it.copy(balance = balance, piggies = next) }
         viewModelScope.launch { repo.saveBalance(balance); repo.savePiggies(next) }
-        showToast("Added ${fmt(v, s.cur)} to ${targetPiggy.name}.", "success")
+        showToast(t("toast.addedToPiggy", "amount" to fmt(v, s.cur), "name" to targetPiggy.name), "success")
         if (targetPiggy.target > 0 && prev < targetPiggy.target && saved >= targetPiggy.target) {
-            showToast("Goal complete for ${targetPiggy.name}! 🎉", "success")
+            showToast(t("toast.goalComplete", "name" to targetPiggy.name), "success")
         }
     }
 
@@ -916,11 +1095,11 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val s = _state.value
         val targetPiggy = s.piggies.find { it.id == id } ?: s.activePiggy
         if (targetPiggy.saved <= 0) {
-            showToast("${targetPiggy.name} is empty.", "error"); return
+            showToast(t("toast.piggyEmpty", "name" to targetPiggy.name), "error"); return
         }
         confirm = ConfirmReq(
-            title = "Break ${targetPiggy.name}?",
-            msg = "All ${fmt(targetPiggy.saved, s.cur)} moves back to your balance.",
+            title = t("confirm.breakPiggyTitle", "name" to targetPiggy.name),
+            msg = t("confirm.breakPiggyMsg", "amount" to fmt(targetPiggy.saved, s.cur)),
             onConfirm = {
                 val balance = s.balance.copy(start = s.balance.start + targetPiggy.saved)
                 val next = s.piggies.map { if (it.id == targetPiggy.id) it.copy(saved = 0.0) else it }
@@ -928,7 +1107,11 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 viewModelScope.launch { repo.saveBalance(balance); repo.savePiggies(next) }
                 dismissConfirm()
                 showToast(
-                    "Broke ${targetPiggy.name} — ${fmt(targetPiggy.saved, s.cur)} back to your balance.",
+                    t(
+                        "toast.piggyBroken",
+                        "name" to targetPiggy.name,
+                        "amount" to fmt(targetPiggy.saved, s.cur)
+                    ),
                     "success"
                 )
             },
@@ -939,17 +1122,15 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     fun deletePiggy(id: String) {
         val s = _state.value
         if (s.piggies.size <= 1) {
-            showToast("Cannot delete the only piggy bank.", "error"); return
+            showToast(t("toast.cannotDeleteOnlyPiggy"), "error"); return
         }
         val targetPiggy = s.piggies.find { it.id == id } ?: return
         confirm = ConfirmReq(
-            title = "Delete ${targetPiggy.name}?",
-            msg = if (targetPiggy.saved > 0) "All ${
-                fmt(
-                    targetPiggy.saved,
-                    s.cur
-                )
-            } saved in this piggy bank will move back to your balance." else "Are you sure you want to delete ${targetPiggy.name}?",
+            title = t("confirm.deletePiggyTitle", "name" to targetPiggy.name),
+            msg = if (targetPiggy.saved > 0) t(
+                "confirm.deletePiggyWithSavings",
+                "amount" to fmt(targetPiggy.saved, s.cur)
+            ) else t("confirm.deletePiggy", "name" to targetPiggy.name),
             onConfirm = {
                 val balance =
                     if (targetPiggy.saved > 0) s.balance.copy(start = s.balance.start + targetPiggy.saved) else s.balance
@@ -958,7 +1139,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 update { it.copy(balance = balance, piggies = next, activePiggyId = newActiveId) }
                 viewModelScope.launch { repo.saveBalance(balance); repo.savePiggies(next) }
                 dismissConfirm()
-                showToast("Deleted ${targetPiggy.name}.", "success")
+                showToast(t("toast.piggyDeleted", "name" to targetPiggy.name), "success")
             },
             onCancel = { dismissConfirm() },
         )
@@ -982,64 +1163,107 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
     fun addExpense() {
         val s = _state.value
-        val v = amount.toDoubleOrNull() ?: return
-        if (v <= 0) return
+        val raw = amount.toDoubleOrNull() ?: return
+        if (raw <= 0) return
         val cat = selCats.firstOrNull() ?: "food"
-        val entry = Expense(uid(), entryDate.ifEmpty { s.today }, v, listOf(cat), cat, note.trim())
+        /* In travel mode the typed figure is the foreign amount; `amount` always stores
+           the home-currency equivalent so budgets and statistics stay comparable. */
+        val abroad = s.travelActive && s.travelRate > 0
+        val v = if (abroad) raw * s.travelRate else raw
+        val entry = Expense(
+            id = uid(),
+            date = entryDate.ifEmpty { s.today },
+            amount = v,
+            categories = listOf(cat),
+            category = cat,
+            note = note.trim(),
+            receipt = receipt,
+            tags = if (abroad) cleanTags(tags + listOf("travel", s.travel.name)) else cleanTags(tags),
+            currency = if (abroad) s.travel.currency else null,
+            foreignAmount = if (abroad) raw else null,
+        )
         val next = s.expenses + entry
         update { it.copy(expenses = next) }
-        amount = ""; note = ""; entryDate = todayKey()
+        amount = ""; note = ""; entryDate = todayKey(); receipt = null; tags = emptyList()
         val catName = s.cats.find { it.id == cat }?.label ?: cat
-        showToast("Logged ${fmt(v, s.cur)} in $catName.", "success")
+        showToast(
+            if (abroad) t(
+                "toast.loggedAbroad",
+                "amount" to fmt(raw, s.travel.currency),
+                "home" to fmt(v, s.cur),
+                "category" to catName
+            )
+            else t("toast.logged", "amount" to fmt(v, s.cur), "category" to catName),
+            "success"
+        )
         viewModelScope.launch { repo.saveExpenses(next) }
+        checkBudgetAlerts()
     }
 
     fun startEdit(e: HistoryEntry) {
         editingId = e.id
-        amount = if (e.amount % 1.0 == 0.0) e.amount.toLong().toString() else e.amount.toString()
+        /* Show the foreign figure when editing an entry that was logged abroad. */
+        val shown = if (e.currency != null && e.foreignAmount != null) e.foreignAmount else e.amount
+        amount = if (shown % 1.0 == 0.0) shown.toLong().toString() else shown.toString()
         note = e.note
         selCats = entryCats(e).take(1).ifEmpty { listOf("food") } // single-select
         entryDate = e.date
+        receipt = e.receipt
+        tags = cleanTags(e.tags)
     }
 
     fun updateExpense() {
         val s = _state.value
         val id = editingId ?: return
-        val v = amount.toDoubleOrNull() ?: return
-        if (v <= 0) return
+        val raw = amount.toDoubleOrNull() ?: return
+        if (raw <= 0) return
         val cat = selCats.firstOrNull() ?: "food"
-        val next = s.expenses.map {
-            if (it.id == id) it.copy(
-                amount = v,
-                categories = listOf(cat),
-                category = cat,
-                note = note.trim(),
-                date = entryDate.ifEmpty { s.today })
-            else it
+        val next = s.expenses.map { cur ->
+            if (cur.id != id) cur
+            else {
+                val abroad = cur.currency != null && cur.foreignAmount != null
+                val v = if (abroad && s.travelRate > 0) raw * s.travelRate else raw
+                cur.copy(
+                    amount = v,
+                    categories = listOf(cat),
+                    category = cat,
+                    note = note.trim(),
+                    date = entryDate.ifEmpty { s.today },
+                    receipt = receipt,
+                    tags = cleanTags(tags),
+                    foreignAmount = if (abroad) raw else cur.foreignAmount,
+                )
+            }
         }
         update { it.copy(expenses = next) }
         cancelEdit()
-        showToast("Spend updated.", "success")
+        showToast(t("toast.spendUpdated"), "success")
         viewModelScope.launch { repo.saveExpenses(next) }
+        checkBudgetAlerts()
     }
 
     fun cancelEdit() {
-        editingId = null; amount = ""; note = ""; entryDate = todayKey()
+        editingId = null; amount = ""; note = ""; entryDate = todayKey(); receipt = null; tags = emptyList()
     }
 
     fun removeExpense(id: String) {
         val s = _state.value
         val removed = s.expenses.find { it.id == id }
+        val removedIndex = s.expenses.indexOfFirst { it.id == id }
         val next = s.expenses.filter { it.id != id }
         if (editingId == id) cancelEdit()
         update { it.copy(expenses = next) }
         viewModelScope.launch { repo.saveExpenses(next) }
-        if (removed != null) showToast("Spend removed.", "info", ToastAction("Undo") {
-            val restored = (s.expenses.filter { it.id != id } + removed).distinctBy { it.id }
-            update { it.copy(expenses = restored) }
-            viewModelScope.launch { repo.saveExpenses(restored) }
-            showToast("Restored.", "success")
+        if (removed != null) showToast(t("toast.spendRemoved"), "info", ToastAction(t("toast.actionUndo")) {
+            // Re-insert at the original index so undo preserves ordering.
+            val current = _state.value.expenses.filter { it.id != id }.toMutableList()
+            current.add(removedIndex.coerceIn(0, current.size), removed)
+            update { it.copy(expenses = current) }
+            viewModelScope.launch { repo.saveExpenses(current) }
+            showToast(t("toast.restored"), "success")
+            checkBudgetAlerts()
         })
+        checkBudgetAlerts()
     }
 
     fun duplicateExpense(id: String) {
@@ -1049,7 +1273,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val next = s.expenses + entry
         update { it.copy(expenses = next) }
         viewModelScope.launch { repo.saveExpenses(next) }
-        showToast("Duplicated ${fmt(e.amount, s.cur)}.", "success")
+        showToast(t("toast.duplicated", "amount" to fmt(e.amount, s.cur)), "success")
     }
 
     fun saveCatBudgets(next: Map<String, Double>) {
@@ -1063,23 +1287,23 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val s = _state.value
         val n = name.trim()
         if (n.isEmpty()) {
-            showToast("Enter a category name.", "error"); return
+            showToast(t("toast.enterCategoryName"), "error"); return
         }
         val id = n.lowercase().replace(Regex("\\s+"), "-").replace(Regex("[^a-z0-9-]"), "")
         if (id.isEmpty() || s.cats.any { it.id == id }) {
-            showToast("Invalid or duplicate name.", "error"); return
+            showToast(t("toast.invalidCategoryName"), "error"); return
         }
         val next = s.categories + Category(id, n, glyph.ifEmpty { "★" })
         val theme = s.theme.copy(catColors = s.theme.catColors + (id to "#7c8896"))
         update { it.copy(categories = next, theme = theme) }
         viewModelScope.launch { repo.saveCategories(next); repo.saveTheme(theme) }
-        showToast("Category \"$n\" added.", "success")
+        showToast(t("toast.categoryAdded", "name" to n), "success")
     }
 
     fun removeCategory(id: String) {
         val s = _state.value
         if (s.expenses.any { expCats(it).contains(id) }) {
-            showToast("Can't delete — expenses use this category.", "error"); return
+            showToast(t("toast.cannotDeleteCategory"), "error"); return
         }
         val next = s.categories.filter { it.id != id }
         update { it.copy(categories = next) }
@@ -1087,7 +1311,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         if (selCats.contains(id)) {
             selCats = (selCats.filter { it != id }).ifEmpty { listOf(next.firstOrNull()?.id ?: "food") }
         }
-        showToast("Category removed.")
+        showToast(t("toast.categoryRemoved"))
     }
 
     /* ─── Theme ─── */
@@ -1096,7 +1320,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val preset = PRESETS[key] ?: return
         update { it.copy(theme = preset, savedTheme = null) }
         viewModelScope.launch { repo.saveTheme(preset); repo.saveSavedTheme(null) }
-        showToast("${key.replaceFirstChar { it.uppercase() }} theme applied.", "success")
+        showToast(t("toast.themeApplied", "name" to key.replaceFirstChar { it.uppercase() }), "success")
     }
 
     fun updateColor(k: String, v: String) {
@@ -1112,8 +1336,50 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     fun resetTheme() {
         update { it.copy(theme = DEFAULT_THEME, savedTheme = null) }
         viewModelScope.launch { repo.saveTheme(DEFAULT_THEME); repo.saveSavedTheme(null) }
-        showToast("Theme reset.", "success")
+        showToast(t("toast.themeReset"), "success")
     }
+
+    /** Ending a trip changes nothing about the entries — confirm first so it isn't a surprise. */
+    fun endTravel() {
+        confirm = ConfirmReq(
+            title = t("confirm.endTripTitle"),
+            msg = t("confirm.endTripMsg"),
+            onConfirm = {
+                updatePrefs { it.copy(travel = it.travel.copy(active = false)) }
+                dismissConfirm()
+                showToast(t("toast.tripEnded"), "info")
+            },
+            onCancel = { dismissConfirm() },
+        )
+    }
+
+    /**
+     * Pulls the current market rate for the active trip. `auto` respects the user's
+     * automatic-sync toggle. Refreshing only affects *future* entries: every logged spend
+     * keeps the home-currency amount it was recorded with, so this never rewrites history.
+     */
+    fun refreshTravelRate(auto: Boolean = false) {
+        val p = _state.value.prefs
+        val tr = p.travel
+        if (!tr.active || tr.currency.isBlank()) {
+            rateStatus = ""
+            return
+        }
+        if (auto && !tr.rateAuto) return
+        rateStatus = "loading"
+        viewModelScope.launch {
+            val res = Fx.fetchRate(tr.currency, p.currency.ifEmpty { "MYR" })
+            if (res == null) {
+                rateStatus = "error"
+                return@launch
+            }
+            val (rate, date) = res
+            updatePrefs { it.copy(travel = it.travel.copy(rate = rate, rateUpdatedAt = date)) }
+            rateStatus = if (date.isNotEmpty()) "ok:$date" else "ok"
+        }
+    }
+
+    fun setLanguage(lang: String) = updatePrefs { it.copy(lang = lang) }
 
     private fun setThemeField(t: AppTheme, k: String, v: String): AppTheme = when (k) {
         "bg" -> t.copy(bg = v); "surface" -> t.copy(surface = v); "surface2" -> t.copy(surface2 = v)
@@ -1136,16 +1402,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     fun toggleLightDark() {
         val s = _state.value
         if (s.savedTheme != null) {
-            val t = s.savedTheme!!
-            update { it.copy(theme = t, savedTheme = null) }
-            viewModelScope.launch { repo.saveTheme(t); repo.saveSavedTheme(null) }
-            showToast("Restored previous theme.", "success")
+            val saved = s.savedTheme!!
+            update { it.copy(theme = saved, savedTheme = null) }
+            viewModelScope.launch { repo.saveTheme(saved); repo.saveSavedTheme(null) }
+            showToast(t("toast.restoredPreviousTheme"), "success")
             return
         }
         val target = if (isDark(s.theme)) PRESETS["paper"]!! else PRESETS["mono"]!!
         update { it.copy(theme = target, savedTheme = s.theme) }
         viewModelScope.launch { repo.saveTheme(target); repo.saveSavedTheme(s.theme) }
-        showToast(if (isDark(s.theme)) "Paper theme applied." else "Mono theme applied.", "success")
+        showToast(if (isDark(s.theme)) t("toast.paperThemeApplied") else t("toast.monoThemeApplied"), "success")
     }
 
     /* ─── Prefs ─── */
@@ -1159,27 +1425,33 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     /* ─── Reorderable cards ─── */
 
     private fun cardOrderBase(s: LedgerState): List<String> =
-        if (s.prefs.cardOrder.size == com.ledger.app.data.defaultCardOrder.size &&
-            s.prefs.cardOrder.toSet() == com.ledger.app.data.defaultCardOrder.toSet()
-        ) s.prefs.cardOrder else com.ledger.app.data.defaultCardOrder
+        com.ledger.app.data.mergeCardOrder(s.prefs.cardOrder)
 
     private fun cardOrderOf(s: LedgerState): List<String> =
         com.ledger.app.data.dashboardCardOrder(s.prefs.cardOrder, s.balancesOn)
 
     fun moveCard(id: String, dir: Int) {
         val s = _state.value
-        val cur = cardOrderBase(s)
-        val idx = cur.indexOf(id)
+        // Index within the *visible* order the UI renders (hidden log/history cards are
+        // filtered out), then swap the two cards' positions in the full persisted list
+        // so hidden cards keep their slots and the move is never a no-op.
+        val visible = cardOrderOf(s)
+        val idx = visible.indexOf(id)
+        if (idx < 0) return
         val swapWith = idx + dir
-        if (swapWith < 0 || swapWith >= cur.size) return
-        val next = cur.toMutableList()
-        val tmp = next[idx]; next[idx] = next[swapWith]; next[swapWith] = tmp
-        updatePrefs { it.copy(cardOrder = next) }
+        if (swapWith < 0 || swapWith >= visible.size) return
+        val other = visible[swapWith]
+        val full = cardOrderBase(s).toMutableList()
+        val i = full.indexOf(id)
+        val j = full.indexOf(other)
+        if (i < 0 || j < 0) return
+        val tmp = full[i]; full[i] = full[j]; full[j] = tmp
+        updatePrefs { it.copy(cardOrder = full) }
     }
 
     fun resetCardOrder() {
         updatePrefs { it.copy(cardOrder = com.ledger.app.data.defaultCardOrder) }
-        showToast("Card order reset.", "success")
+        showToast(t("toast.cardOrderReset"), "success")
     }
 
     /* ─── Wallpaper & Notifications ─── */
@@ -1189,7 +1461,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             try {
                 val mime = context.contentResolver.getType(uri)
                 if (mime?.startsWith("image/") != true) {
-                    showToast("Please choose an image file.", "error")
+                    showToast(t("toast.chooseImageFile"), "error")
                     return@launch
                 }
                 val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch
@@ -1197,14 +1469,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 val file = java.io.File(context.filesDir, "wallpaper_${System.currentTimeMillis()}.$ext")
                 context.filesDir.listFiles { _, name -> name.startsWith("wallpaper_") }?.forEach { it.delete() }
 
-                file.outputStream().use { out ->
-                    inputStream.copyTo(out)
+                inputStream.use { input ->
+                    file.outputStream().use { out ->
+                        input.copyTo(out)
+                    }
                 }
                 val path = file.absolutePath
                 updatePrefs { it.copy(wallpaper = path) }
-                showToast("Wallpaper set.", "success")
+                showToast(t("toast.wallpaperSet"), "success")
             } catch (e: Exception) {
-                showToast("Couldn't set wallpaper.", "error")
+                showToast(t("toast.wallpaperSetFailed"), "error")
             }
         }
     }
@@ -1213,8 +1487,35 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             context.filesDir.listFiles { _, name -> name.startsWith("wallpaper_") }?.forEach { it.delete() }
             updatePrefs { it.copy(wallpaper = null) }
-            showToast("Wallpaper removed.", "success")
+            showToast(t("toast.wallpaperRemoved"), "success")
         }
+    }
+
+    /* ─── Receipt photos ─── */
+
+    /** Decode, downscale and attach [uri] as the pending expense's receipt. */
+    fun setReceiptFromUri(context: android.content.Context, uri: android.net.Uri) {
+        viewModelScope.launch {
+            val data = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: return@runCatching null
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ?: return@runCatching null
+                    bitmapToReceiptDataUrl(bmp)
+                }.getOrNull()
+            }
+            if (data != null) {
+                receipt = data
+                showToast(t("toast.receiptAttached"), "success")
+            } else {
+                showToast(t("toast.receiptReadFailed"), "error")
+            }
+        }
+    }
+
+    fun clearReceipt() {
+        receipt = null
     }
 
     fun updateWallpaperDim(dim: Int) {
@@ -1233,10 +1534,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 _state.value.prefs.reminderHour,
                 _state.value.prefs.reminderMinute
             )
-            showToast("Daily reminders turned on.", "success")
+            showToast(t("toast.remindersOn"), "success")
         } else {
             NotificationHelper.cancelDailyReminder(context)
-            showToast("Reminders turned off.", "info")
+            showToast(t("toast.remindersOff"), "info")
         }
     }
 
@@ -1244,23 +1545,129 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         updatePrefs { it.copy(reminderHour = hour, reminderMinute = minute) }
         if (_state.value.prefs.notificationsEnabled) {
             NotificationHelper.scheduleDailyReminder(context, hour, minute)
-            showToast("Reminder time updated.", "success")
+            showToast(t("toast.reminderTimeUpdated"), "success")
         }
     }
 
     fun toggleBudgetAlerts(enabled: Boolean) {
         updatePrefs { it.copy(budgetAlertsEnabled = enabled) }
-        showToast(if (enabled) "Budget alert warnings enabled." else "Budget alerts disabled.", "info")
+        showToast(if (enabled) t("toast.budgetAlertsEnabled") else t("toast.budgetAlertsDisabled"), "info")
+    }
+
+    /* ─── Budget alerts (80% / 100%, once per period) ─── */
+
+    /**
+     * Fire notifications when the monthly budget or a per-category budget crosses 80%
+     * and 100%. Each threshold fires at most once per period (the period is recorded
+     * alongside the fired set), and the OS permission is respected inside
+     * [NotificationHelper.showBudgetAlert].
+     */
+    private fun checkBudgetAlerts() {
+        val s = _state.value
+        if (!s.prefs.budgetAlertsEnabled) return
+        val settings = s.settings ?: return
+        if (s.effectiveMonthlyBudget <= 0 && s.catBudgets.isEmpty()) return
+        val period = settings.startDate
+        val context = repo.appContext
+        viewModelScope.launch {
+            val stored = repo.getBudgetAlerts()
+            val fired = if (stored.period == period) stored.fired.toMutableSet() else mutableSetOf()
+            val newlyCrossed = mutableListOf<Pair<String, String>>() // title to message
+
+            fun check(id: String, label: String, spent: Double, budget: Double, isMonthly: Boolean) {
+                if (budget <= 0) return
+                val pct = spent / budget * 100
+                for (threshold in listOf(80, 100)) {
+                    if (pct + 0.0001 >= threshold && fired.add("$id:$threshold")) {
+                        val scopeLabel = if (isMonthly) t("toast.monthlyBudget") else label
+                        val title = if (threshold >= 100) t("toast.budgetExceeded") else t("toast.budgetAlert80")
+                        newlyCrossed.add(
+                            title to t(
+                                "toast.budgetUsed",
+                                "scope" to scopeLabel,
+                                "spent" to fmt(spent, s.cur),
+                                "budget" to fmt(budget, s.cur)
+                            )
+                        )
+                    }
+                }
+            }
+
+            if (s.effectiveMonthlyBudget > 0) {
+                check("monthly", t("toast.thisMonth"), s.periodSpent, s.effectiveMonthlyBudget, true)
+            }
+            s.catBudgets.forEach { (catId, budget) ->
+                val label = s.cats.find { it.id == catId }?.label ?: catId
+                val spent = s.expenses
+                    .filter { it.date >= period && it.date <= s.today && expCats(it).contains(catId) }
+                    .sumOf { it.amount }
+                check("cat:$catId", label, spent, budget, false)
+            }
+
+            if (newlyCrossed.isNotEmpty()) {
+                repo.saveBudgetAlerts(BudgetAlertState(period, fired.toList()))
+                newlyCrossed.forEach { (title, msg) ->
+                    NotificationHelper.showBudgetAlert(context, title, msg)
+                }
+            }
+        }
+    }
+
+    /* ─── Monthly insights (month-over-month) ─── */
+
+    /** Calendar-month comparison of spending, derived here rather than in the composable. */
+    fun insights(s: LedgerState): InsightsData {
+        val today = parseDateOrNull(s.today) ?: LocalDate.now()
+        val monthStart = firstOfMonthKey(today)
+        val daysElapsed = today.dayOfMonth
+        val daysTotal = daysInMonth(today)
+        val prevMonth = today.withDayOfMonth(1).minusMonths(1)
+        val prevStart = prevMonth.withDayOfMonth(1).toString()
+        val prevEnd = prevMonth.withDayOfMonth(prevMonth.lengthOfMonth()).toString()
+
+        val thisExp = s.expenses.filter { it.date >= monthStart && it.date <= s.today }
+        val lastExp = s.expenses.filter { it.date >= prevStart && it.date <= prevEnd }
+        val thisMonth = thisExp.sumOf { it.amount }
+        val lastMonth = lastExp.sumOf { it.amount }
+        val changePct = if (lastMonth > 0) (thisMonth - lastMonth) / lastMonth * 100 else null
+
+        val thisByCat = thisExp.groupBy { expCats(it).firstOrNull() ?: "other" }
+            .mapValues { (_, v) -> v.sumOf { it.amount } }
+        val lastByCat = lastExp.groupBy { expCats(it).firstOrNull() ?: "other" }
+            .mapValues { (_, v) -> v.sumOf { it.amount } }
+        val biggestCatId = (thisByCat.keys + lastByCat.keys)
+            .maxByOrNull { abs((thisByCat[it] ?: 0.0) - (lastByCat[it] ?: 0.0)) }
+        val biggestDelta = biggestCatId?.let { (thisByCat[it] ?: 0.0) - (lastByCat[it] ?: 0.0) } ?: 0.0
+        val biggestLabel = biggestCatId?.let { id -> s.cats.find { it.id == id }?.label ?: id }
+
+        val avgPerDay = if (daysElapsed > 0) thisMonth / daysElapsed else 0.0
+        val byDay = thisExp.groupBy { it.date }.mapValues { (_, v) -> v.sumOf { it.amount } }
+
+        return InsightsData(
+            thisMonth = thisMonth,
+            lastMonth = lastMonth,
+            changePct = changePct,
+            biggestCategoryLabel = if (biggestDelta != 0.0) biggestLabel else null,
+            biggestCategoryDelta = biggestDelta,
+            avgPerDay = avgPerDay,
+            daysElapsed = daysElapsed,
+            projected = avgPerDay * daysTotal,
+            monthlyBudget = s.effectiveMonthlyBudget,
+            bestDay = byDay.minByOrNull { it.value }?.toPair(),
+            worstDay = byDay.maxByOrNull { it.value }?.toPair(),
+        )
     }
 
     fun testReminderNotification(context: android.content.Context) {
-        NotificationHelper.showDailyReminder(context)
-        showToast("Test notification sent.", "success")
+        /* Preview the ordinary reminder (with the real streak); the grace-period variant is
+           reserved for the day it actually applies. */
+        NotificationHelper.showDailyReminder(context, _state.value.spendStreak, false)
+        showToast(t("toast.testNotificationSent"), "success")
     }
 
     fun toggleGlass(enabled: Boolean) {
         updatePrefs { it.copy(glassEnabled = enabled) }
-        showToast(if (enabled) "Liquid glass enabled." else "Liquid glass disabled.", "info")
+        showToast(if (enabled) t("toast.glassEnabled") else t("toast.glassDisabled"), "info")
     }
 
     fun updateGlassBlur(blur: Int) {
@@ -1269,6 +1676,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
     fun updateGlassOpacity(opacity: Int) {
         updatePrefs { it.copy(glassOpacity = opacity.coerceIn(20, 100)) }
+    }
+
+    fun updateGlassInnerOpacity(opacity: Int) {
+        updatePrefs { it.copy(glassInnerOpacity = opacity.coerceIn(0, 100)) }
     }
 
     fun updateGlassRefraction(refraction: Int) {
@@ -1288,8 +1699,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     fun clearAll() {
         val s = _state.value
         confirm = ConfirmReq(
-            title = "Delete everything?",
-            msg = "This removes all logged expenses, budget settings, and preferences. Download a backup first if you want to keep your data.",
+            title = t("confirm.clearAllTitle"),
+            msg = t("confirm.clearAllMsg"),
             onConfirm = {
                 val freshPiggy = Piggy()
                 update {
@@ -1312,7 +1723,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                     repo.savePiggies(listOf(freshPiggy)); repo.saveRecurring(emptyList())
                 }
                 dismissConfirm()
-                showToast("All data cleared.", "success")
+                showToast(t("toast.allDataCleared"), "success")
             },
             onCancel = { dismissConfirm() },
         )
@@ -1351,8 +1762,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     /** Import a web/Android backup JSON. Returns an error message, or null on success. */
     fun importData(raw: String): String? {
         val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull()
-            ?: return "Not a valid ledger backup."
-        if (obj["expenses"] !is JsonArray) return "Not a valid ledger backup."
+            ?: return t("toast.importInvalidBackup")
+        if (obj["expenses"] !is JsonArray) return t("toast.importInvalidBackup")
         val s = _state.value
 
         // Older/corrupted exports occasionally mangle the category key (e.g. "category'");
@@ -1360,7 +1771,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val expensesArr = obj["expenses"] as JsonArray
         val normalizedExpenses = JsonArray(expensesArr.map { normalizeExpenseElement(it) })
         val newExpenses = runCatching { json.decodeFromJsonElement<List<Expense>>(normalizedExpenses) }
-            .getOrElse { return "Couldn't read that file. (${it.message})" }
+            .getOrElse { return t("toast.importReadFailed", "detail" to it.message) }
         val finalExpenses = com.ledger.app.data.normalizeExpenses(newExpenses)
 
         var settings = s.settings
@@ -1368,7 +1779,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             if (el !is JsonNull && el is JsonObject &&
                 el["monthlyBudget"] is JsonPrimitive && el["periodDays"] is JsonPrimitive && el["startDate"] is JsonPrimitive
             ) {
-                settings = runCatching { json.decodeFromJsonElement<Settings>(el) }.getOrNull() ?: s.settings
+                settings = runCatching { json.decodeFromJsonElement<Settings>(el) }.getOrNull()
+                    ?.let { sanitizeSettings(it) } ?: s.settings
             }
         }
 
@@ -1429,11 +1841,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                             pieGap = el["pieGap"]?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: prefs.pieGap,
                             groupHistory = el["groupHistory"]?.jsonPrimitive?.booleanOrNull ?: prefs.groupHistory,
                             trendStyle = el["trendStyle"]?.jsonPrimitive?.contentOrNull ?: prefs.trendStyle,
-                            heatColors = p.heatColors,
+                            // Only overwrite map/list prefs when the backup actually carries
+                            // the key, so an older/partial backup can't reset custom values.
+                            heatColors = if (el.containsKey("heatColors")) p.heatColors else prefs.heatColors,
                             font = el["font"]?.jsonPrimitive?.contentOrNull ?: prefs.font,
-                            cardOrder = p.cardOrder,
+                            cardOrder = if (el.containsKey("cardOrder") && p.cardOrder.isNotEmpty())
+                                p.cardOrder else prefs.cardOrder,
                             balancesEnabled = el["balancesEnabled"]?.jsonPrimitive?.booleanOrNull
                                 ?: prefs.balancesEnabled,
+                            overspendFromBalance = el["overspendFromBalance"]?.jsonPrimitive?.booleanOrNull
+                                ?: prefs.overspendFromBalance,
                             heroMode = el["heroMode"]?.jsonPrimitive?.contentOrNull ?: prefs.heroMode,
                         )
                     }
@@ -1454,7 +1871,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             repo.saveCatBudgets(catBudgets); repo.saveTopUps(topUps); repo.saveBalance(balance)
             repo.savePiggies(piggies); repo.saveRecurring(recurring); repo.savePrefs(prefs)
         }
-        showToast("Restored ${finalExpenses.size} entries.", "success")
+        showToast(t("toast.restoredEntries", "count" to finalExpenses.size), "success")
+        checkBudgetAlerts()
         return null
     }
 
@@ -1485,6 +1903,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             } else {
                 detachFirestoreListener()
                 syncedUid = null
+                lastPushedJson = null
             }
         }
         auth.addAuthStateListener(authListener!!)
@@ -1492,6 +1911,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
     private fun attachFirestoreListener(uid: String) {
         detachFirestoreListener()
+        // Switching accounts must not reuse the previous account's dedupe state.
+        if (syncedUid != uid) lastPushedJson = null
         val db = FirebaseManager.getFirestore(repo.appContext) ?: return
         try {
             snapshotListener = db.collection("ledger").document(uid)
@@ -1500,7 +1921,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                         Log.w("LedgerViewModel", "Sync listener error", error)
                         _state.value = _state.value.copy(
                             syncError = true,
-                            syncErrorMsg = error.localizedMessage ?: "Sync error"
+                            syncErrorMsg = error.localizedMessage ?: t("toast.syncError")
                         )
                         return@addSnapshotListener
                     }
@@ -1529,7 +1950,6 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                             val cloudHasSettings = data["settings"] != null
                             val localSettingsNull = _state.value.settings == null
                             if (cloudHasSettings && localSettingsNull) {
-                                skipNextPush = true
                                 applyRemote(data)
                                 repo.setLastSync(uid, remoteAt)
                                 _state.value = _state.value.copy(
@@ -1537,12 +1957,11 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                                     syncError = false,
                                     syncErrorMsg = ""
                                 )
-                                showToast("Synced from cloud.", "success")
+                                showToast(t("toast.syncedFromCloud"), "success")
                             } else if (remoteAt > last) {
                                 if (cloudLooksDefault && localHasData) {
                                     pushSync(uid)
                                 } else {
-                                    skipNextPush = true
                                     applyRemote(data)
                                     repo.setLastSync(uid, remoteAt)
                                     _state.value = _state.value.copy(
@@ -1551,14 +1970,13 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                                         syncErrorMsg = ""
                                     )
                                     if (last == 0L) {
-                                        showToast("Synced from cloud.", "success")
+                                        showToast(t("toast.syncedFromCloud"), "success")
                                     }
                                 }
                             } else if (remoteAt == 0L) {
                                 if (cloudLooksDefault || localHasData) {
                                     safePushSync(uid)
                                 } else {
-                                    skipNextPush = true
                                     applyRemote(data)
                                 }
                             } else if (remoteAt < last) {
@@ -1574,7 +1992,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             Log.w("LedgerViewModel", "Sync subscribe failed", e)
             _state.value = _state.value.copy(
                 syncError = true,
-                syncErrorMsg = e.localizedMessage ?: "Sync subscribe failed"
+                syncErrorMsg = e.localizedMessage ?: t("toast.syncSubscribeFailed")
             )
         }
     }
@@ -1612,8 +2030,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 repo.saveRecurring(it)
             }
             parsed.settings?.let {
-                s = s.copy(settings = it)
-                repo.saveSettings(it)
+                val safe = sanitizeSettings(it)
+                s = s.copy(settings = safe)
+                repo.saveSettings(safe)
             }
             parsed.categories?.let {
                 s = s.copy(categories = it)
@@ -1637,6 +2056,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             }
 
             _state.value = computeDerived(s)
+            checkBudgetAlerts()
         } catch (e: Exception) {
             Log.w("LedgerViewModel", "applyRemote failed", e)
         }
@@ -1682,16 +2102,19 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 }
                 .addOnFailureListener { e ->
                     Log.w("LedgerViewModel", "Sync push failed", e)
+                    // The write didn't land — clear the dedupe marker so the same
+                    // payload is retried instead of being skipped forever.
+                    lastPushedJson = null
                     _state.value = _state.value.copy(
                         syncError = true,
-                        syncErrorMsg = e.localizedMessage ?: "Sync push failed"
+                        syncErrorMsg = e.localizedMessage ?: t("toast.syncPushFailed")
                     )
                 }
         } catch (e: Exception) {
             Log.w("LedgerViewModel", "Sync push failed", e)
             _state.value = _state.value.copy(
                 syncError = true,
-                syncErrorMsg = e.localizedMessage ?: "Sync push failed"
+                syncErrorMsg = e.localizedMessage ?: t("toast.syncPushFailed")
             )
         }
     }
@@ -1704,10 +2127,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     }
 
     private fun triggerDebouncedPush() {
-        if (skipNextPush) {
-            skipNextPush = false
-            return
-        }
+        // A corrupt local blob is left untouched — never push defaults over it.
+        if (_state.value.dataCorrupt) return
         val user = _state.value.authUser ?: return
         if (syncedUid != user.uid) return
         pushJob?.cancel()
@@ -1720,21 +2141,21 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
     fun manualSync() {
         val user = _state.value.authUser
         if (user == null) {
-            showToast("Sign in with Google to sync.", "info")
+            showToast(t("toast.signInToSync"), "info")
             return
         }
-        showToast("Syncing...", "info")
+        showToast(t("toast.syncing"), "info")
         lastPushedJson = null // Force push
         pushSync(user.uid)
     }
 
     fun signInGoogle(activity: Activity, launcher: ActivityResultLauncher<Intent>? = null) {
         if (!FirebaseConfig.isConfigured) {
-            showToast("Sync isn't configured yet — see the Sync section in settings.", "error")
+            showToast(t("toast.syncNotConfigured"), "error")
             return
         }
         if (!FirebaseManager.init(activity)) {
-            showToast("Couldn't load Firebase — check your internet connection and reload.", "error")
+            showToast(t("toast.firebaseLoadFailed"), "error")
             return
         }
 
@@ -1757,7 +2178,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
 
     fun launchOAuthProvider(activity: Activity) {
         if (!FirebaseManager.init(activity)) {
-            showToast("Couldn't load Firebase — check your internet connection and reload.", "error")
+            showToast(t("toast.firebaseLoadFailed"), "error")
             return
         }
 
@@ -1770,7 +2191,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         if (pendingResultTask != null) {
             pendingResultTask
                 .addOnSuccessListener {
-                    showToast("Signed in — syncing is on.", "success")
+                    showToast(t("toast.signedIn"), "success")
                 }
                 .addOnFailureListener { e ->
                     handleAuthError(e)
@@ -1778,7 +2199,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         } else {
             auth.startActivityForSignInWithProvider(activity, provider)
                 .addOnSuccessListener {
-                    showToast("Signed in — syncing is on.", "success")
+                    showToast(t("toast.signedIn"), "success")
                 }
                 .addOnFailureListener { e ->
                     handleAuthError(e)
@@ -1791,7 +2212,7 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val credential = GoogleAuthProvider.getCredential(idToken, null)
         auth.signInWithCredential(credential)
             .addOnSuccessListener {
-                showToast("Signed in — syncing is on.", "success")
+                showToast(t("toast.signedIn"), "success")
             }
             .addOnFailureListener { e ->
                 handleAuthError(e)
@@ -1804,27 +2225,27 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 "12501"
             ) || msg.contains("closed", ignoreCase = true)
         ) {
-            showToast("Sign-in cancelled.", "info")
+            showToast(t("toast.signInCancelled"), "info")
         } else if (msg.contains("INVALID APP ID", ignoreCase = true) || msg.contains(
                 "INVALID_APP_ID",
                 ignoreCase = true
             )
         ) {
             showToast(
-                "Firebase: Add Android app (com.ledger.app) in Firebase Console, or set androidAppId in FirebaseConfig.kt.",
+                t("toast.firebaseAndroidAppMissing"),
                 "error"
             )
         } else {
-            showToast(msg.ifEmpty { "Sign-in failed." }, "error")
+            showToast(msg.ifEmpty { t("toast.signInFailed") }, "error")
         }
     }
 
     fun signOutGoogle() {
         try {
             FirebaseAuth.getInstance().signOut()
-            showToast("Signed out. Changes stay on this device.", "info")
+            showToast(t("toast.signedOut"), "info")
         } catch (e: Exception) {
-            showToast("Sign out failed.", "error")
+            showToast(t("toast.signOutFailed"), "error")
         }
     }
 

@@ -6,6 +6,81 @@
 > reverse-chronological order at the top of the list below. Do **not** edit or delete existing entries,
 > do **not** rewrite history here, and keep each entry to a single compressed line. If you make a series
 > of changes in one session, group them under one `Added/Changed/Fixed` entry.
+>
+> **Note:** the `v0.1.5` section below was never released as a whole; only its trophy-streak,
+> splash-screen and blur-system work was carried forward into `v0.1.6` at the owner's request.
+> Its remaining entries keep their original 0.1.5 label and are otherwise unchanged.
+
+## v0.1.6
+
+A private, local-first budgeting app that tracks your daily allowance and banks whatever you don't spend.
+
+### ✨ What's New
+- **Daily logging streak** — logging a spend every day builds a streak (kept alive until a whole day is missed), shown on a new **Streak** card that leads with the current run as a large number beside the best streak, today's status and a hint (web + Android). The collectible trophy gems this originally shipped with were dropped before release, leaving the streak on its own.
+- **Android intro splash** — a brief branded splash now covers cold start instead of a black frame, matching the window background so there is no seam, and it fades away once the stored data is ready rather than vanishing instantly.
+- **Tags on every spend** — attach up to 8 free-form tags to a spend (type and press Enter; chips with an × to remove), shown under each History row and filterable from the "Sort & filter" panel alongside the category pills; tags are searchable and counted in the filter badge (web + Android).
+- **Four more Android widgets** — alongside "allowance left today": a category pie chart, budget progress (spent vs the monthly budget, with a percentage), the active piggy bank, and the logging streak; all refresh on the same 15-minute WorkManager cadence and on backgrounding, and share the existing widget styling.
+- **Streak grace days** — a new Streaks setting forgives up to two skipped days inside a logging streak, so a missed day no longer resets the run; applied to both the current and the best streak (web + Android).
+- **Travel mode** — a trip page that replaces the dashboard: log spends in a foreign currency at a rate you set, and the hero shows what you've spent abroad next to the equivalent in your home currency. Each entry is stored with its home-currency amount (so budgets and statistics are untouched) plus the original foreign figure, and is auto-tagged `travel`. Trip name, currency, rate and start date live in Prefs → Travel mode; "End trip" returns to the normal dashboard and keeps the entries (web + Android).
+- **Full localization** — a Language setting adds Spanish, Simplified Chinese, Russian, Thai, Japanese and Korean, and every user-facing string is translatable: navigation, every card and its title, the entry form, history, all four customization tabs and their descriptions, setup, the command palette, dialogs, locks, reminders and toasts, trophy names/rarities, and the home-screen widgets (dynamic text through `t()`, plus `res/values-xx/strings.xml` for the widget label/description resources). Dictionaries live in `src/lib/i18n.js` + `src/lib/strings/*` + `src/lib/locales/*` (web) and `ui/Strings.kt` + `ui/strings/*` + `ui/locales/*` (Android), and `scripts/check-locales.cjs` asserts every locale covers every key with identical `{placeholders}`.
+- **Organized customization drawer** — every settings group in the Theme tab is collapsed behind its own button with a chevron, so the drawer reads as a short index instead of one long scroll; in Prefs the **Language** and **Streaks** groups now come first, and the Travel tab's trip controls are shown directly rather than behind a subcategory (web + Android).
+- **Edge blur & fade toggle** — Theme → Screen edges turns the top/bottom blur+fade off entirely for a crisp edge (Android gates the progressive blur; web drops the sticky top bar's backdrop blur).
+- **Travel tab & live exchange rates** — travel mode moved out of Prefs into its own settings tab, with the trip's controls sitting directly at the top of that tab rather than behind a subcategory, and the home-currency picker and per-currency breakdown below them; the rate now syncs automatically from the ECB reference rates (`api.frankfurter.app`, no API key — only the two currency codes are sent, never amounts or identifiers) when a trip starts or either currency changes, with a manual refresh, an auto-sync toggle, and a fallback to the saved rate when offline.
+- **Logged currencies are never rewritten** — every travel entry keeps the currency it was logged in, so changing the trip's currency or refreshing the rate only affects *new* entries: the trip page shows a per-currency subtotal beside the home-currency total, a breakdown of every currency used, and re-editing an older entry uses that entry's own currency rather than the trip's current one.
+- **Language picker on first run** — the setup screen now asks for the language before the budget, so the rest of onboarding — and every screen after it — reads in the chosen language.
+- **Ending a trip asks first** — the End trip button (on the trip page and in the Travel tab) now opens a confirmation that spells out what happens: the trip's spends stay in History, tagged, and nothing is deleted.
+- **Travel logs read in both currencies** — a History row for a spend logged abroad now shows the foreign figure it was entered in, with its home-currency equivalent underneath (web + Android).
+- **A trip tags its own logs** — while a trip is active every new spend is tagged `travel` *and* with the trip's name, so one trip's entries can be filtered by name from the History filter row; renaming a trip only affects entries logged after the change.
+- **Streak in the daily reminder** — the daily log reminder now carries your current streak, and on the day a missed yesterday leaves the run resting on a grace day, a separate, firmer notification fires instead: today is the last chance to keep it (Android).
+- **Home-screen widgets: light or dark** — Theme → Home-screen widgets offers a light/dark choice that applies to all five widgets and is independent of the app's own theme. (Android only — the web app has no widgets.)
+
+### 🐛 Fixes
+- Fix (Android): cloud sync no longer erases an expense's tags and its travel currency — `FirebaseSync` mapped only seven fields in each direction, so Firestore's immediate local echo silently dropped `tags`, `currency` and `foreignAmount` a moment after every edit. Travel entries fell back to the home currency and auto-tags never stuck; every field an expense carries now round-trips.
+- UI (web): the hero badge that counts days under allowance now reads "Nd under budget" instead of "N-day streak", so it isn't confused with the new daily spend streak.
+- UI (Android): dashboard content now blurs *and* fades out at the top and bottom edges instead of hard-clipping — the scrolling cards are captured into a backdrop layer and a progressive gaussian blur (the theme's liquid-glass machinery, strongest at the screen edge and easing to sharp further in) is drawn over them, under a colour fade to the background, above the cards but below the nav pill; the status-bar clip was removed so cards scroll all the way under the blur rather than being cut off.
+- Fix (Android): the edge blur is skipped below Android 13, where the mask runtime shader doesn't exist and the blur would render as a hard-edged, uniformly-blurred slab that smeared across the cards while scrolling — those devices get the fade on its own.
+
+---
+
+> **Version:** 0.1.6 · **Platform:** Android (APK) + Web · **Requires:** Android 8.0+ (API 26); full liquid-glass effects on Android 13+ (API 33)
+
+---
+
+## v0.1.5
+
+A private, local-first budgeting app that tracks your daily allowance and banks whatever you don't spend.
+
+### ✨ What's New
+- **Budget alerts** — 80%/100% alerts for the monthly budget and per-category budgets, fired once per threshold per period (Android notifications; web in-app alert plus optional browser notification requested from settings).
+- **Monthly insights** — a new card comparing this month to last: total spent (+/− %), biggest category change, avg/day, projected month-end vs pace, best/worst day.
+- **Receipt photos** — attach an optional downscaled photo to any spend; shown as a thumbnail in History that opens full-screen (web + Android).
+- **App lock** — a device-local lock toggle: biometric / device-credential on Android, PIN with optional WebAuthn device unlock on web; re-locks when backgrounded.
+- **Smart category suggestions** — typing a note auto-selects the category, learned from your own history first (exact notes, then personal vocabulary such as brand names, resolved by most-used with a recency tie-break), falling back to the built-in keyword list (rice, latte, grab, laundry, …); a manual pick always wins, and starting a new entry re-enables auto-pick.
+- **Home-screen widget (Android)** — a small app-widget showing today's remaining allowance ("RM x left today"), tap to open the app; refreshes every 15 minutes (WorkManager; `updatePeriodMillis` is clamped to 30 min by the platform) and whenever the app is backgrounded.
+- **Undo for deleted spends** — deleting a spend offers an Undo that re-inserts it at its original position.
+
+### 🐛 Fixes
+- Fix (Android): the new corrupt-blob guard no longer false-positives on nullable slices — `saveSettings(null)`/`saveSavedTheme(null)` wrote the JSON literal `null`, which the loader mistook for corruption and paused sync; null slices are now stored as absent and read as absent, and the warning names the affected slice.
+- Fix (Android): sync no longer swallows the next edit — removed the unconsumed `skipNextPush` flag that made the first change after any cloud pull never reach Firestore.
+- Fix (web + Android): validate settings / expenses / top-ups / piggies on import and Firestore load (`periodDays >= 1`, parseable `startDate`, drop `null`/invalid entries) so a malformed backup can't render NaN or crash the app.
+- Fix (web + Android): recurring automations advance by their configured frequency and no longer drift — monthly rules anchored on the 31st clamp correctly instead of sliding to the 28th, and malformed rule dates are normalized instead of crashing.
+- Fix (web + Android): device-local piggy texture/sound survive a cloud pull (merged by id) instead of being wiped by the stripped remote copy.
+- Fix (web + Android): a failed Firestore write now clears the dedupe hash so it retries, and the hash resets on sign-out/account switch — edits are no longer silently dropped.
+- Fix (web + Android): "saved to balance" now uses each elapsed day's allowance in effect (top-ups dated on/before that day) instead of retroactively rewriting past days with today's allowance.
+- Fix (web + Android): first sign-in no longer overwrites existing local data with a cloud copy when this device already has data (it pushes local instead).
+- Fix (Android): corrupt DataStore blobs are kept rather than silently overwritten with defaults, and `lastSync` read-modify-write is now atomic.
+- Fix (Android): reminders/notifications schedule reliably via `goAsync()`; wallpaper/receipt input streams are closed; a future start date no longer marks day 0 as elapsed.
+- Fix (Android UI): dashboard up/down reordering matches the visible (filtered) order; the daily strip no longer steals vertical scroll; the Customize sheet no longer clips in short/landscape windows; the heatmap opens on the newest weeks; toasts animate out and the slider haptic baseline isn't stale.
+- Fix (web): command-palette actions no longer use stale data; history search tolerates note-less entries; the Confirm dialog can't fire twice on Enter; chart prefs with non-numeric values no longer crash; the piggy file picker resets after a "too large" error; the error-boundary reset works with storage blocked; ids sort/compare consistently; the palette trigger and toasts are keyboard/AT accessible.
+- Fix (web + Android): smart category auto-selection is no longer left permanently off after a single manual category pick — it re-runs on every note edit, while a manual selection is still honoured until the note changes again.
+- Fix (Android): the panels nested inside cards now follow the "Liquid glass cards" toggle — hero stat tiles, the daily-spend strip, insights day tiles, piggy panels, secondary buttons and chips turn frosted instead of staying solid black, so the card's glass shows through. The strength is adjustable with the new **Sub-card opacity** slider (0% = fully clear, 100% = solid, default 40%).
+- Fix (web build): the GitHub Pages bundle now uses a relative base (`base: './'`) so `dist/` resolves its assets from any sub-path, as the README documents — the previous absolute `/ledger/` base 404'd whenever the site was served from a different path.
+
+---
+
+> **Version:** 0.1.5 · **Platform:** Android (APK) + Web · **Requires:** Android 8.0+ (API 26); full liquid-glass effects on Android 13+ (API 33)
+
+---
 
 ## v0.1.4
 

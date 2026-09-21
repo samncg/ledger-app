@@ -1,4 +1,5 @@
 import { I } from '../../lib/icons';
+import { t } from '../../lib/i18n';
 
 /* Category breakdown — range tabs, pie chart, per-category bars */
 export default function BreakdownCard({
@@ -12,54 +13,54 @@ export default function BreakdownCard({
       <div className="card-title">
         <span className="card-title-left">
           <span className="card-title-icon"><I.Chart/></span>
-          Category breakdown
+          {t('card.breakdown.title')}
         </span>
         {catBudgetEdit?(
           <span style={{display:'flex',gap:8}}>
-            <button className="link-btn" onClick={saveCatBudgets}>Save</button>
-            <button className="link-btn" onClick={()=>setCatBudgetEdit(false)}>Cancel</button>
+            <button className="link-btn" onClick={saveCatBudgets}>{t('card.breakdown.save')}</button>
+            <button className="link-btn" onClick={()=>setCatBudgetEdit(false)}>{t('card.breakdown.cancel')}</button>
           </span>
         ):(
-          <button className="link-btn" onClick={startCatBudgetEdit}>Budgets</button>
+          <button className="link-btn" onClick={startCatBudgetEdit}>{t('card.breakdown.budgets')}</button>
         )}
       </div>
 
       <div className="range-tabs">
-        {[{id:"period",label:"Period"},{id:"week",label:"7d"},{id:"month",label:"Month"},{id:"all",label:"All"},{id:"custom",label:"Custom"}].map(r=>(
+        {[{id:"period",label:t('card.breakdown.rangePeriod')},{id:"week",label:t('card.breakdown.range7d')},{id:"month",label:t('card.breakdown.rangeMonth')},{id:"all",label:t('card.breakdown.rangeAll')},{id:"custom",label:t('card.breakdown.rangeCustom')}].map(r=>(
           <button key={r.id} className={`range-tab ${overviewRange===r.id?"active":""}`} onClick={()=>setOverviewRange(r.id)}>{r.label}</button>
         ))}
       </div>
 
       {overviewRange==="custom"&&(
         <div className="filter-row" style={{marginBottom:14}}>
-          <div><div className="field-label">From</div><input className="input mono" type="date" value={ovFrom} max={ovTo||today} onChange={e=>setOvFrom(e.target.value)}/></div>
-          <div><div className="field-label">To</div><input className="input mono" type="date" value={ovTo} min={ovFrom} max={today} onChange={e=>setOvTo(e.target.value)}/></div>
+          <div><div className="field-label">{t('card.breakdown.from')}</div><input className="input mono" type="date" value={ovFrom} max={ovTo||today} onChange={e=>setOvFrom(e.target.value)}/></div>
+          <div><div className="field-label">{t('card.breakdown.to')}</div><input className="input mono" type="date" value={ovTo} min={ovFrom} max={today} onChange={e=>setOvTo(e.target.value)}/></div>
         </div>
       )}
 
       <div className="totals-row">
         <div>
-          <div className="totals-label">Total spent</div>
+          <div className="totals-label">{t('card.breakdown.totalSpent')}</div>
           <div className="totals-value">{MYR(totalSpent)}</div>
           <div className="totals-caption">{rangeLabel}</div>
         </div>
         <div>
-          <div className="totals-label">% of allowance</div>
+          <div className="totals-label">{t('card.breakdown.pctAllowance')}</div>
           <div className="totals-value" style={{color:budgetPct>=100?'var(--negative)':budgetPct>=75?'var(--warning)':'var(--text)'}}>
             {budgetPct.toFixed(1)}%
           </div>
-          <div className="totals-caption">vs {MYR(rangeBudget)} · {rangeDays}d</div>
+          <div className="totals-caption">{t('card.breakdown.vs',{amount:MYR(rangeBudget),days:rangeDays})}</div>
         </div>
       </div>
 
       <div className="insights-row">
-        <span className="insight-item">Avg spending/day <strong>{MYR(avgPerDayInRange)}</strong></span>
+        <span className="insight-item">{t('card.breakdown.avgPerDay')} <strong>{MYR(avgPerDayInRange)}</strong></span>
         <span className="insight-sep">·</span>
-        <span className="insight-item">Top {topCategory?<strong>{topCategory.label}</strong>:<strong>—</strong>}{topCategory&&` (${MYR(categoryTotals[topCategory.id])})`}</span>
+        <span className="insight-item">{t('card.breakdown.top')} {topCategory?<strong>{topCategory.label}</strong>:<strong>—</strong>}{topCategory&&` (${MYR(categoryTotals[topCategory.id])})`}</span>
         <span className="insight-sep">·</span>
-        <span className="insight-item">Txns <strong>{overviewExpenses.length}</strong></span>
+        <span className="insight-item">{t('card.breakdown.txns')} <strong>{overviewExpenses.length}</strong></span>
         <span className="insight-sep">·</span>
-        <span className="insight-item">Biggest {biggestInRange?<strong>{MYR(biggestInRange.amount)}</strong>:<strong>—</strong>}</span>
+        <span className="insight-item">{t('card.breakdown.biggest')} {biggestInRange?<strong>{MYR(biggestInRange.amount)}</strong>:<strong>—</strong>}</span>
       </div>
 
       <div className="breakdown-body">
@@ -67,7 +68,7 @@ export default function BreakdownCard({
           {pieSlices.length===0?(
             <>
               <svg viewBox="0 0 36 36" className="pie-svg"><circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--border-strong)" strokeWidth={prefs.pieThickness}/></svg>
-              <div className="pie-center"><div className="pie-center-val">{MYR(0)}</div><div className="pie-center-sub">spent</div></div>
+              <div className="pie-center"><div className="pie-center-val">{MYR(0)}</div><div className="pie-center-sub">{t('card.breakdown.spent')}</div></div>
             </>
           ):(
             <>
@@ -82,14 +83,14 @@ export default function BreakdownCard({
                       strokeDasharray={`${dash} ${100-dash}`}
                       strokeDashoffset={25-s.offset} strokeLinecap="butt"
                     >
-                      <title>{`${s.label}: ${MYR(s.value)} (${s.pct.toFixed(1)}%)`}</title>
+                      <title>{t('card.breakdown.sliceTitle',{label:s.label,amount:MYR(s.value),pct:s.pct.toFixed(1)})}</title>
                     </circle>
                   );
                 })}
               </svg>
               <div className="pie-center">
                 <div className="pie-center-val">{MYR(totalSpent)}</div>
-                <div className="pie-center-sub">spent</div>
+                <div className="pie-center-sub">{t('card.breakdown.spent')}</div>
               </div>
             </>
           )}
@@ -100,7 +101,7 @@ export default function BreakdownCard({
             {cats.map(c=>(
               <div className="cat-bar-row" key={c.id}>
                 <div className="cat-bar-label"><span className="cat-dot" style={{background:c.color}}/> {c.label}</div>
-                <input className="input mono" type="number" inputMode="decimal" placeholder="No limit" value={catBudgetDraft[c.id]??''} onChange={e=>setCatBudgetField(c.id,e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveCatBudgets()} style={{flex:1}}/>
+                <input className="input mono" type="number" inputMode="decimal" placeholder={t('card.breakdown.noLimit')} value={catBudgetDraft[c.id]??''} onChange={e=>setCatBudgetField(c.id,e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveCatBudgets()} style={{flex:1}}/>
               </div>
             ))}
           </div>

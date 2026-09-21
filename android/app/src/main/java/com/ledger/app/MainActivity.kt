@@ -9,7 +9,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -37,8 +42,10 @@ import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.GlassStyle
 import com.ledger.app.ui.components.LocalGlassBackdrop
 import com.ledger.app.ui.components.LocalGlassStyle
+import com.ledger.app.ui.components.LedgerSplash
 import com.ledger.app.ui.parseColor
 import com.ledger.app.ui.screens.DashboardScreen
+import com.ledger.app.ui.screens.LockScreen
 import com.ledger.app.ui.screens.SetupScreen
 import com.ledger.app.util.NotificationHelper
 import com.kashif_e.backdrop.Backdrop
@@ -50,9 +57,23 @@ class MainActivity : ComponentActivity() {
 
     private var vmRef: LedgerViewModel? = null
 
+    /* App lock state — Compose reads these to show/refresh the lock overlay. */
+    private var unlocked by mutableStateOf(false)
+    private var lockEpoch by mutableStateOf(0)
+    private var lockPromptInFlight = false
+    private var unlockLauncher: ActivityResultLauncher<Intent>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Keep the home-screen widget fresh on a 15-minute cadence.
+        LedgerWidget.scheduleRefresh(applicationContext)
+
+        unlockLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            lockPromptInFlight = false
+            unlocked = result.resultCode == RESULT_OK
+        }
 
         val openLogInitially = intent?.getBooleanExtra(NotificationHelper.EXTRA_OPEN_LOG, false) ?: false
 
@@ -81,9 +102,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (!state.ready) {
-                Box(Modifier.fillMaxSize().background(Color(0xFF0a0a0a)))
-                return@setContent
+            val appLockOn = state.prefs.appLockEnabled
+            // Prompt automatically whenever the app is locked (cold start, or after
+            // returning from the background). A cancelled prompt is not retried
+            // automatically, so the user can always tap "Unlock" themselves.
+            LaunchedEffect(appLockOn, unlocked, lockEpoch) {
+                if (appLockOn && !unlocked && !lockPromptInFlight) {
+                    lockPromptInFlight = true
+                    unlockLauncher?.launch(Intent(this@MainActivity, LockActivity::class.java))
+                }
             }
 
             /* Keep status-bar and navigation-bar icons legible on light/dark themes. */
@@ -105,7 +132,8 @@ class MainActivity : ComponentActivity() {
                         opacity = state.prefs.glassOpacity,
                         refraction = state.prefs.glassRefraction,
                         refractionHeight = state.prefs.glassRefractionHeight,
-                        chromaticAberration = state.prefs.glassChromaticAmount / 100f
+                        chromaticAberration = state.prefs.glassChromaticAmount / 100f,
+                        innerOpacity = state.prefs.glassInnerOpacity
                     ),
                     LocalGlassBackdrop provides glassBackdrop
                 ) {
@@ -117,10 +145,31 @@ class MainActivity : ComponentActivity() {
                             themeBg = state.theme.bg,
                             backdrop = glassBackdrop
                         )
-                        if (state.settings == null) {
-                            SetupScreen(vm, state)
-                        } else {
-                            DashboardScreen(vm, state, initialShowLog = openLogInitially)
+                        /* Nothing renders until the stored data has loaded, otherwise the
+                           setup screen would flash before the real state arrives. */
+                        if (state.ready) {
+                            if (state.settings == null) {
+                                SetupScreen(vm, state)
+                            } else {
+                                DashboardScreen(vm, state, initialShowLog = openLogInitially)
+                            }
+                            if (appLockOn && !unlocked) {
+                                LockScreen(onUnlock = {
+                                    if (!lockPromptInFlight) {
+                                        lockPromptInFlight = true
+                                        unlockLauncher?.launch(Intent(this@MainActivity, LockActivity::class.java))
+                                    }
+                                })
+                            }
+                        }
+                        /* Intro splash — stays composed so it can fade away over the app
+                           once the stored data is ready, instead of vanishing instantly. */
+                        AnimatedVisibility(
+                            visible = !state.ready,
+                            enter = EnterTransition.None,
+                            exit = fadeOut(tween(340)),
+                        ) {
+                            LedgerSplash()
                         }
                     }
                 }
@@ -137,6 +186,18 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vmRef?.refresh()
+    }
+
+    /* Re-lock the app once it has actually gone to the background. */
+    override fun onStop() {
+        super.onStop()
+        if (vmRef?.state?.value?.prefs?.appLockEnabled == true) {
+            unlocked = false
+            lockEpoch++
+        }
+        // Keep the home-screen widgets in step with the latest data.
+        LedgerWidget.refresh(this)
+        WidgetRefresher.refreshNew(this)
     }
 }
 

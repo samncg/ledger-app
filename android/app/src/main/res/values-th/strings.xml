@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">วงเงินของวันนี้</string>
+    <string name="widget_no_data">เปิด Ledger เพื่อเริ่มต้น</string>
+    <string name="widget_no_budget">ยังไม่ได้ตั้งงบประมาณ</string>
+    <string name="widget_left">วันนี้เหลือ %1$s</string>
+    <string name="widget_over">วันนี้เกิน %1$s</string>
+    <string name="widget_pie_label">แผนภูมิวงกลม</string>
+    <string name="widget_pie_desc">การใช้จ่ายตามหมวดหมู่ในงวดนี้</string>
+    <string name="widget_budget_label">ความคืบหน้างบประมาณ</string>
+    <string name="widget_budget_desc">การใช้จ่ายในงวดนี้เทียบกับงบประมาณรายเดือนของคุณ</string>
+    <string name="widget_piggy_label">กระปุกออมสิน</string>
+    <string name="widget_piggy_desc">ความคืบหน้าไปสู่เป้าหมายกระปุกออมสินของคุณ</string>
+    <string name="widget_streak_label">สถิติการบันทึกต่อเนื่อง</string>
+    <string name="widget_streak_desc">จำนวนวันที่บันทึกติดต่อกัน</string>
+</resources>

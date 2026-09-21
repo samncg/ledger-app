@@ -10,21 +10,21 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.ledger.app.MainActivity
+import com.ledger.app.ui.t
 import java.util.Calendar
 
 object NotificationHelper {
     const val CHANNEL_ID = "ledger_reminders"
-    const val CHANNEL_NAME = "Ledger Reminders"
-    const val CHANNEL_DESC = "Daily spend reminders and budget alerts"
     const val NOTIFICATION_ID_DAILY = 1001
     const val NOTIFICATION_ID_ALERT = 1002
+    const val NOTIFICATION_ID_STREAK = 1003
     const val EXTRA_OPEN_LOG = "EXTRA_OPEN_LOG"
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, importance).apply {
-                description = CHANNEL_DESC
+            val channel = NotificationChannel(CHANNEL_ID, t("notif.channelName"), importance).apply {
+                description = t("notif.channelDesc")
                 enableVibration(true)
             }
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -86,7 +86,7 @@ object NotificationHelper {
         alarmManager.cancel(pendingIntent)
     }
 
-    fun showDailyReminder(context: Context) {
+    fun showDailyReminder(context: Context, streak: Int, graceRisk: Boolean) {
         createNotificationChannel(context)
 
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -99,22 +99,41 @@ object NotificationHelper {
         val smallIcon = context.applicationInfo.icon.takeIf { it != 0 }
             ?: android.R.drawable.ic_dialog_info
 
+        /* When a grace day is all that's holding the run together, today is the last chance
+           to keep it — that gets its own notification rather than the ordinary reminder. */
+        val id: Int
+        val title: String
+        val body: String
+        val bigBody: String
+        if (graceRisk) {
+            id = NOTIFICATION_ID_STREAK
+            title = t("notif.graceTitle")
+            body = t("notif.graceBody", "n" to streak)
+            bigBody = t("notif.graceBodyLong", "n" to streak)
+        } else {
+            id = NOTIFICATION_ID_DAILY
+            title = t("notif.dailyTitle")
+            if (streak > 0) {
+                body = t("notif.dailyBodyStreak", "n" to streak)
+                bigBody = t("notif.dailyBodyLongStreak", "n" to streak)
+            } else {
+                body = t("notif.dailyBody")
+                bigBody = t("notif.dailyBodyLong")
+            }
+        }
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(smallIcon)
-            .setContentTitle("Ledger — Daily Log")
-            .setContentText("Did you spend anything today? Tap to log your expenses.")
-            .setStyle(
-                NotificationCompat.BigTextStyle().bigText(
-                    "Did you spend anything today? Keep your budget and allowances accurate by logging your daily expenses."
-                )
-            )
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigBody))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
 
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_DAILY, notification)
+            NotificationManagerCompat.from(context).notify(id, notification)
         } catch (e: SecurityException) {
             // Permission not granted
         }

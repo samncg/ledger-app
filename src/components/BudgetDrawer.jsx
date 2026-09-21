@@ -1,6 +1,7 @@
 import { I } from '../lib/icons';
 import { CURRENCIES } from '../lib/constants';
 import { firstOfMonthKey } from '../lib/helpers';
+import { t } from '../lib/i18n';
 
 /* Edit Budget Drawer */
 export default function BudgetDrawer({
@@ -12,13 +13,13 @@ export default function BudgetDrawer({
       <div className="drawer-overlay" onClick={onClose}/>
       <div className="drawer" style={{width:460}}>
         <div className="drawer-header">
-          <span className="drawer-title">Budget settings</span>
+          <span className="drawer-title">{t('setup.budgetSettings')}</span>
           <button className="icon-btn" onClick={onClose}><I.Close/></button>
         </div>
         <div className="drawer-body">
           <div className="setup-form">
             <div>
-              <div className="field-label">Monthly budget</div>
+              <div className="field-label">{t('setup.monthlyBudget')}</div>
               <div className="currency-row">
                 <select className="input currency-select" value={cur} onChange={e=>persistPrefs({...prefs,currency:e.target.value})}>
                   {Object.values(CURRENCIES).map(c=><option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
@@ -28,37 +29,37 @@ export default function BudgetDrawer({
             </div>
             {balancesOn&&(
               <div>
-                <div className="field-label">Bank balance</div>
+                <div className="field-label">{t('setup.bankBalance')}</div>
                 <div className="currency-row">
                   <select className="input currency-select" value={cur} onChange={e=>persistPrefs({...prefs,currency:e.target.value})}>
                     {Object.values(CURRENCIES).map(c=><option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
                   </select>
                   <input className="input mono" type="number" inputMode="decimal" value={draftBalance} onChange={e=>setDraftBalance(e.target.value)}/>
                 </div>
-                <div className="hero-stat-note" style={{fontSize:12}}>Your bank balance. Transfers to the budget come out of this; leftover allowance is banked back into it.</div>
+                <div className="hero-stat-note" style={{fontSize:12}}>{t('setup.bankBalanceDesc')}</div>
                 <div className="toggle-row">
                   <div>
-                    <div className="toggle-label">Overspends come from balance</div>
-                    <div className="toggle-desc">When you spend more than a day's allowance, take it out of your bank balance. Off = covered by the monthly budget.</div>
+                    <div className="toggle-label">{t('setup.overspendFromBalance')}</div>
+                    <div className="toggle-desc">{t('setup.overspendDesc')}</div>
                   </div>
-                  <button className={`toggle ${prefs.overspendFromBalance?'on':''}`} onClick={()=>persistPrefs({...prefs,overspendFromBalance:!prefs.overspendFromBalance})} title="Toggle overspend source"/>
+                  <button className={`toggle ${prefs.overspendFromBalance?'on':''}`} onClick={()=>persistPrefs({...prefs,overspendFromBalance:!prefs.overspendFromBalance})} title={t('setup.overspendToggle')}/>
                 </div>
               </div>
             )}
             <div>
-              <div className="field-label">Period length (days)</div>
+              <div className="field-label">{t('setup.periodDays')}</div>
               <input className="input mono" type="number" inputMode="numeric" value={draftDays} onChange={e=>setDraftDays(e.target.value)}/>
             </div>
             <div>
-              <div className="field-label">Start date</div>
+              <div className="field-label">{t('setup.startDate')}</div>
               <input className="input mono" type="date" value={draftStartDate} max={today} onChange={e=>setDraftStartDate(e.target.value)}/>
-              <button className="link-btn" style={{marginTop:8}} onClick={()=>setDraftStartDate(firstOfMonthKey())}>Realign to 1st of this month</button>
+              <button className="link-btn" style={{marginTop:8}} onClick={()=>setDraftStartDate(firstOfMonthKey())}>{t('setup.realign')}</button>
             </div>
           </div>
         </div>
         <div className="drawer-footer" style={{display:'flex',gap:8}}>
-          <button className="btn" style={{flex:1}} onClick={saveSetup}>Save changes</button>
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" style={{flex:1}} onClick={saveSetup}>{t('setup.saveChanges')}</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t('drawer.cancel')}</button>
         </div>
       </div>
     </>

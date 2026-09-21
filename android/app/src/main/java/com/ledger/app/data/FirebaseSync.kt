@@ -150,6 +150,10 @@ object FirebaseSyncSerializer {
                 "categories" to listOf(cat),
                 "category" to cat,
                 "note" to e.note,
+                "receipt" to e.receipt,
+                "tags" to e.tags,
+                "currency" to e.currency,
+                "foreignAmount" to e.foreignAmount,
             )
         }
 
@@ -280,7 +284,13 @@ object FirebaseSyncSerializer {
             val categories = rawCats?.mapNotNull { it?.toString() } ?: emptyList()
             val singleCat = (categories.firstOrNull() ?: m["category"]?.toString()) ?: "food"
             val note = m["note"]?.toString() ?: ""
-            Expense(id, date, amount, listOf(singleCat), singleCat, note)
+            val receipt = m["receipt"]?.toString()
+            /* Round-trip every field an Expense carries — dropping one here silently erases
+               it on the next cloud echo (tags, and the travel currency/amount). */
+            val tags = (m["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            val currency = m["currency"]?.toString()?.takeIf { it.isNotBlank() }
+            val foreignAmount = (m["foreignAmount"] as? Number)?.toDouble()
+            Expense(id, date, amount, listOf(singleCat), singleCat, note, receipt, tags, currency, foreignAmount)
         }
 
         // Top-ups
@@ -338,7 +348,7 @@ object FirebaseSyncSerializer {
             val monthlyBudget = (m["monthlyBudget"] as? Number)?.toDouble() ?: return@let null
             val periodDays = (m["periodDays"] as? Number)?.toInt() ?: return@let null
             val startDate = m["startDate"]?.toString() ?: return@let null
-            Settings(monthlyBudget, periodDays, startDate)
+            sanitizeSettings(Settings(monthlyBudget, periodDays, startDate))
         }
 
         // Categories (web uses 'cats', backups use 'categories')

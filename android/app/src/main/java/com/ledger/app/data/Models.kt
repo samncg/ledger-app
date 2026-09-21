@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import com.ledger.app.util.parseDateOrNull
 
 /* ═══════════════════════════════════════════
    DATA MODEL — same shapes as the web app's
@@ -48,6 +49,12 @@ data class Expense(
     val categories: List<String> = emptyList(),
     val category: String? = null,
     val note: String = "",
+    val receipt: String? = null,
+    val tags: List<String> = emptyList(),
+    /** Set only on entries logged in travel mode. `amount` stays in the home
+    currency; these two carry the foreign figure for display. */
+    val currency: String? = null,
+    val foreignAmount: Double? = null,
 )
 
 @Serializable
@@ -95,6 +102,25 @@ data class Settings(
     val startDate: String,
 )
 
+/**
+ * Clamp settings coming from a backup, Firestore or DataStore so malformed values
+ * can't crash rendering (blank/unparseable [Settings.startDate]) or produce an
+ * Infinity/NaN daily budget ([Settings.periodDays] <= 0).
+ */
+fun sanitizeSettings(s: Settings): Settings = Settings(
+    monthlyBudget = if (s.monthlyBudget.isFinite()) s.monthlyBudget else 0.0,
+    periodDays = s.periodDays.coerceAtLeast(1),
+    startDate = parseDateOrNull(s.startDate)?.toString()
+        ?: java.time.LocalDate.now().withDayOfMonth(1).toString(),
+)
+
+/** Tracks which budget-alert thresholds have already fired for a given period. */
+@Serializable
+data class BudgetAlertState(
+    val period: String = "",
+    val fired: List<String> = emptyList(),
+)
+
 @Serializable
 data class Category(val id: String, val label: String, val glyph: String)
 
@@ -137,6 +163,7 @@ data class Prefs(
     val reminderHour: Int = 20,
     val reminderMinute: Int = 0,
     val budgetAlertsEnabled: Boolean = true,
+    val appLockEnabled: Boolean = false,
     val glassEnabled: Boolean = false,
     val glassScreens: Boolean = false,
     val glassScreensInside: Boolean = false,
@@ -145,6 +172,28 @@ data class Prefs(
     val glassRefraction: Int = 24,
     val glassRefractionHeight: Int = 12,
     val glassChromaticAmount: Int = 0,
+    val glassInnerOpacity: Int = 40, // opacity of the panels nested inside glass cards (0 = clear, 100 = solid)
+    val streakGrace: Int = 0,        // missed days forgiven inside a spend streak (0 = off)
+    val edgeBlur: Boolean = true,    // progressive blur+fade at the top and bottom of the screen
+    val lang: String = "en",         // UI language: en | es | zh | ru | th | ja | ko
+    val widgetDark: Boolean = true, // dark widget theme; false = light
+    val travel: Travel = Travel(),
+)
+
+/** Travel mode — while `active`, the home page is replaced by a travel page and
+entries are entered in `currency`, converted at `rate` (home units per 1
+foreign unit) and tagged "travel". */
+@Serializable
+data class Travel(
+    val active: Boolean = false,
+    val name: String = "",
+    val currency: String = "USD",
+    val rate: Double = 1.0,
+    val start: String = "",
+    /** Refresh the rate from the ECB reference set when a trip starts or a currency changes. */
+    val rateAuto: Boolean = true,
+    /** Reference date of the last fetched rate, as reported by the rate source. */
+    val rateUpdatedAt: String = "",
 )
 
 @Serializable
@@ -215,15 +264,37 @@ val defaultHeatColors = mapOf(
     "l4" to "#216e39",
 )
 
-val defaultCardOrder = listOf("log", "breakdown", "trend", "history", "auto", "piggy", "backup")
+val defaultCardOrder =
+    listOf("log", "breakdown", "insights", "trend", "history", "streak", "auto", "piggy", "backup")
+
+/* Renamed card ids: a stored order written before the rename still holds the old id,
+   so it is translated here and the card keeps the slot the user put it in. */
+private val legacyCardIds = mapOf("trophies" to "streak")
+
+/**
+ * Merge a stored card order with the known cards: keep the user's order, drop unknown
+ * ids, and append cards added since — so shipping a new card never resets a layout.
+ */
+fun mergeCardOrder(stored: List<String>): List<String> {
+    val kept = stored.map { legacyCardIds[it] ?: it }.filter { it in defaultCardOrder }.distinct()
+    return kept + defaultCardOrder.filter { it !in kept }
+}
+
+/**
+ * Normalises a tag list the same way the web app does: trims, drops leading
+ * `#`, removes blanks and duplicates, and caps the list at 8.
+ */
+fun cleanTags(tags: List<String>?): List<String> =
+    (tags ?: emptyList())
+        .map { it.trim().trimStart('#').trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .take(8)
 
 /**
  * Cards rendered on the dashboard. Log-spend and History live behind their
  * top-bar buttons, so they're filtered out here; piggy hides when the bank
  * balance system is off.
  */
-fun dashboardCardOrder(stored: List<String>, balancesOn: Boolean): List<String> {
-    val base =
-        if (stored.size == defaultCardOrder.size && stored.toSet() == defaultCardOrder.toSet()) stored else defaultCardOrder
-    return base.filter { it != "log" && it != "history" }.filter { balancesOn || it != "piggy" }
-}
+fun dashboardCardOrder(stored: List<String>, balancesOn: Boolean): List<String> =
+    mergeCardOrder(stored).filter { it != "log" && it != "history" }.filter { balancesOn || it != "piggy" }

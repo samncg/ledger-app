@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">今日额度</string>
+    <string name="widget_no_data">打开 Ledger 开始使用</string>
+    <string name="widget_no_budget">尚未设置预算</string>
+    <string name="widget_left">今日剩余 %1$s</string>
+    <string name="widget_over">今日超出 %1$s</string>
+    <string name="widget_pie_label">饼图</string>
+    <string name="widget_pie_desc">本期各分类支出</string>
+    <string name="widget_budget_label">预算进度</string>
+    <string name="widget_budget_desc">本期支出对比月度预算</string>
+    <string name="widget_piggy_label">存钱罐</string>
+    <string name="widget_piggy_desc">存钱罐目标的完成进度</string>
+    <string name="widget_streak_label">连续记录</string>
+    <string name="widget_streak_desc">连续记录的天数</string>
+</resources>

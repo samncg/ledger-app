@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ledger.app.ui.t
 
 /* Top bar — brand + log-spend, history & customize buttons */
 @Composable
@@ -70,7 +71,7 @@ fun TopBar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(Icons.Outlined.Add, null, Modifier.size(13.dp))
-                Text("Log spend", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(t("app.nav.logSpend"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
         Spacer(Modifier.width(8.dp))

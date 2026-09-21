@@ -14,6 +14,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,17 +67,22 @@ import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
+import com.ledger.app.LedgerWidget
+import com.ledger.app.WidgetRefresher
 import com.ledger.app.ui.FONT_OPTIONS
 import com.ledger.app.ui.HEAT_LEVELS
 import com.ledger.app.ui.HEAT_PRESETS
 import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.PRESETS
+import com.ledger.app.ui.Strings
 import com.ledger.app.ui.activePresetKey
 import com.ledger.app.ui.charts.PieChart
 import com.ledger.app.ui.parseColor
+import com.ledger.app.ui.t
 import com.ledger.app.util.CURRENCIES
 import com.ledger.app.util.fmt
+import com.ledger.app.util.rateDecimals
 import com.ledger.app.util.relativeDate
 
 import java.text.SimpleDateFormat
@@ -96,10 +103,10 @@ fun BudgetDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
     var balance by remember { mutableStateOf(s.balance.start.toString()) }
 
     DrawerSheet(onClose) {
-        DrawerHeader("Budget settings", onClose)
+        DrawerHeader(t("drawer.budgetSettings"), onClose)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column {
-                FieldLabel("Monthly budget")
+                FieldLabel(t("setup.monthlyBudget"))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SelectField(
                         value = s.cur, modifier = Modifier.weight(1f),
@@ -117,7 +124,7 @@ fun BudgetDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
             }
             if (s.balancesOn) {
                 Column {
-                    FieldLabel("Bank balance")
+                    FieldLabel(t("drawer.bankBalance"))
                     AppTextField(
                         value = balance,
                         onChange = { balance = it },
@@ -126,18 +133,18 @@ fun BudgetDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
                         numeric = true
                     )
                     Spacer(Modifier.height(4.dp))
-                    SectionDesc("Your bank balance. Transfers to the budget come out of this; leftover allowance is banked back into it.")
+                    SectionDesc(t("drawer.bankBalanceDesc"))
                 }
                 ToggleRow(
-                    "Overspends come from balance",
-                    "When you spend more than a day's allowance, take it out of your bank balance. Off = the overspend is covered by the monthly budget.",
+                    t("drawer.overspendFromBalance"),
+                    t("drawer.overspendFromBalanceDesc"),
                     s.prefs.overspendFromBalance
                 ) {
                     vm.updatePrefs { p -> p.copy(overspendFromBalance = it) }
                 }
             }
             Column {
-                FieldLabel("Period length (days)")
+                FieldLabel(t("setup.periodDays"))
                 AppTextField(
                     value = days,
                     onChange = { days = it },
@@ -147,20 +154,20 @@ fun BudgetDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
                 )
             }
             Column {
-                FieldLabel("Start date")
+                FieldLabel(t("setup.startDate"))
                 DateField(value = startDate, onChange = { startDate = it }, maxDate = s.today)
                 TextButton(onClick = { startDate = com.ledger.app.util.firstOfMonthKey() }) {
-                    Text("Realign to 1st of this month", fontSize = 12.sp)
+                    Text(t("drawer.realignFirst"), fontSize = 12.sp)
                 }
             }
         }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Btn("Save changes", onClick = {
+            Btn(t("drawer.saveChanges"), onClick = {
                 vm.saveSetup(budget, days, startDate, s.cur, balance)
                 onClose()
             }, modifier = Modifier.weight(1f))
-            Btn("Cancel", onClick = onClose, variant = "ghost")
+            Btn(t("app.cancel"), onClick = onClose, variant = "ghost")
         }
     }
 }
@@ -174,24 +181,24 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
 
     DrawerSheet(onClose) {
         DrawerHeader(
-            if (s.balancesOn) "Money" else "Top up budget",
+            if (s.balancesOn) t("drawer.moneyTitle") else t("drawer.topUpBudgetTitle"),
             onClose,
             icon = if (s.balancesOn) Icons.Outlined.Wallet else Icons.Outlined.Bolt,
         )
         if (s.balancesOn) {
             RangeTabs(
                 options = listOf(
-                    "budget" to "To budget",
-                    "return" to "To balance",
-                    "add" to "Add balance",
-                    "withdraw" to "Withdraw balance"
+                    "budget" to t("drawer.toBudget"),
+                    "return" to t("drawer.toBalance"),
+                    "add" to t("drawer.addBalance"),
+                    "withdraw" to t("drawer.withdrawBalance")
                 ),
                 selected = mode,
                 onSelect = setMode,
             )
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Balance", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("drawer.balance"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     fmt(s.bankBalance, s.cur),
                     fontSize = 14.sp,
@@ -200,7 +207,7 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
                 )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("After", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("drawer.after"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val delta = amount.toDoubleOrNull() ?: 0.0
                 val after = if (mode == "return" || mode == "add") s.bankBalance + delta else s.bankBalance - delta
                 Text(
@@ -216,11 +223,11 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
             Column {
                 FieldLabel(
                     when {
-                        !s.balancesOn -> "Amount to add"
-                        mode == "budget" -> "Amount to move to budget"
-                        mode == "return" -> "Amount to return to balance"
-                        mode == "withdraw" -> "Amount to withdraw"
-                        else -> "Amount to add"
+                        !s.balancesOn -> t("drawer.amountToAdd")
+                        mode == "budget" -> t("drawer.amountToMoveToBudget")
+                        mode == "return" -> t("drawer.amountToReturn")
+                        mode == "withdraw" -> t("drawer.amountToWithdraw")
+                        else -> t("drawer.amountToAdd")
                     },
                 )
                 AppTextField(
@@ -234,40 +241,40 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
             }
             if (!s.balancesOn || mode == "budget" || mode == "return") {
                 Column {
-                    FieldLabel("Note (optional)")
+                    FieldLabel(t("log.notePlaceholder"))
                     AppTextField(
                         value = note, onChange = { note = it }, modifier = Modifier.fillMaxWidth(),
                         placeholder = when {
-                            !s.balancesOn -> "e.g. bonus, birthday money"
-                            mode == "return" -> "e.g. took out the extra food money"
-                            else -> "e.g. extra cash for food"
+                            !s.balancesOn -> t("drawer.noteExampleBonus")
+                            mode == "return" -> t("drawer.noteExampleReturn")
+                            else -> t("drawer.noteExampleExtra")
                         },
                     )
                 }
             }
             SectionDesc(
                 when {
-                    !s.balancesOn -> "Added to your total monthly budget — your daily allowance rises for the rest of the period."
-                    mode == "budget" -> "Moved out of your balance into this month's budget — your daily allowance rises for the rest of the period."
-                    mode == "return" -> "Moves money from your budget back to your balance — you can only take back what you moved in."
-                    mode == "withdraw" -> "Removes money from your balance, e.g. to spend it elsewhere — it stays gone even if you stay under budget."
-                    else -> "Money you add from outside the app — it raises your balance and is protected from spending."
+                    !s.balancesOn -> t("drawer.descAddFunds")
+                    mode == "budget" -> t("drawer.descToBudget")
+                    mode == "return" -> t("drawer.descToBalance")
+                    mode == "withdraw" -> t("drawer.descWithdraw")
+                    else -> t("drawer.descAddBalance")
                 },
             )
         }
 
         if ((!s.balancesOn || mode == "budget" || mode == "return") && s.topUps.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
-            FieldLabel("Recent ${if (s.balancesOn) "transfers" else "top-ups"}")
+            FieldLabel(if (s.balancesOn) t("drawer.recentTransfers") else t("drawer.recentTopUps"))
             Spacer(Modifier.height(4.dp))
-            s.topUps.asReversed().take(8).forEach { t ->
+            s.topUps.asReversed().take(8).forEach { top ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier.size(26.dp).clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            if (t.amount >= 0) (if (s.balancesOn) Icons.Outlined.Wallet else Icons.Outlined.Bolt) else Icons.Outlined.Wallet,
+                            if (top.amount >= 0) (if (s.balancesOn) Icons.Outlined.Wallet else Icons.Outlined.Bolt) else Icons.Outlined.Wallet,
                             null,
                             Modifier.size(13.dp)
                         )
@@ -275,25 +282,25 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            if (t.amount >= 0) fmt(t.amount, s.cur) else "-${fmt(Math.abs(t.amount), s.cur)}",
+                            if (top.amount >= 0) fmt(top.amount, s.cur) else "-${fmt(Math.abs(top.amount), s.cur)}",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium
                         )
-                        if (t.note.isNotEmpty()) Text(
-                            t.note,
+                        if (top.note.isNotEmpty()) Text(
+                            top.note,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Text(
-                        relativeDate(t.date, s.today),
+                        relativeDate(top.date, s.today),
                         fontSize = 10.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    IconButton(onClick = { vm.removeTopUp(t.id) }) {
+                    IconButton(onClick = { vm.removeTopUp(top.id) }) {
                         Icon(
                             Icons.Outlined.Delete,
-                            "Remove",
+                            t("log.remove"),
                             Modifier.size(15.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -306,11 +313,11 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn(
                 when {
-                    !s.balancesOn -> "Add funds"
-                    mode == "budget" -> "Move to budget"
-                    mode == "return" -> "Return to balance"
-                    mode == "withdraw" -> "Withdraw"
-                    else -> "Add to balance"
+                    !s.balancesOn -> t("drawer.addFunds")
+                    mode == "budget" -> t("history.moveToBudget")
+                    mode == "return" -> t("history.returnToBalance")
+                    mode == "withdraw" -> t("drawer.withdraw")
+                    else -> t("drawer.addToBalance")
                 },
                 onClick = {
                     vm.submitMoney(mode, amount, note)
@@ -319,7 +326,7 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
                 modifier = Modifier.weight(1f),
                 icon = Icons.Outlined.Add,
             )
-            Btn("Cancel", onClick = onClose, variant = "ghost")
+            Btn(t("app.cancel"), onClick = onClose, variant = "ghost")
         }
     }
 }
@@ -331,9 +338,15 @@ fun CustomizeDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
     var tab by remember { mutableStateOf("theme") }
 
     DrawerSheet(onClose, contentHeight = 560.dp) {
-        DrawerHeader("Customize", onClose)
+        DrawerHeader(t("top.customize"), onClose)
         RangeTabs(
-            options = listOf("theme" to "Theme", "chart" to "Chart", "cats" to "Categories", "prefs" to "Prefs"),
+            options = listOf(
+                "theme" to t("tab.theme"),
+                "chart" to t("tab.chart"),
+                "cats" to t("tab.cats"),
+                "travel" to t("tab.travel"),
+                "prefs" to t("tab.prefs")
+            ),
             selected = tab,
             onSelect = { tab = it },
         )
@@ -343,7 +356,44 @@ fun CustomizeDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
             "theme" -> ThemeTab(vm, s)
             "chart" -> ChartTab(vm, s)
             "cats" -> CatsTab(vm, s)
+            "travel" -> TravelTab(vm, s)
             "prefs" -> PrefsTab(vm, s)
+        }
+    }
+}
+
+/**
+ * A settings group hidden behind its own button. Collapsed by default so the drawer reads
+ * as a short index instead of one long scroll; the open state is remembered per title.
+ */
+@Composable
+private fun CollapsibleSection(
+    title: String,
+    initiallyOpen: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var open by remember(title) { mutableStateOf(initiallyOpen) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                .clickable { open = !open }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (open) "▴" else "▾",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (open) {
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
         }
     }
 }
@@ -351,225 +401,277 @@ fun CustomizeDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
 @Composable
 private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Btn("Toggle light / dark", onClick = vm::toggleLightDark, variant = "ghost", modifier = Modifier.fillMaxWidth())
-        SectionTitle("Typography")
-        SelectField(
-            value = s.prefs.font, modifier = Modifier.fillMaxWidth(),
-            options = FONT_OPTIONS.map { it.id to it.name },
-            onChange = { vm.updatePrefs { p -> p.copy(font = it) } },
+        Btn(
+            t("drawer.toggleLightDark"),
+            onClick = vm::toggleLightDark,
+            variant = "ghost",
+            modifier = Modifier.fillMaxWidth()
         )
-        SectionTitle("Presets")
-        val activeKey = activePresetKey(s.theme, s.categories)
-        val tick = rememberHapticTick()
-        FlowRow2(spacedBy = 8.dp) {
-            PRESETS.toList().forEach { (key, preset) ->
-                val active = key == activeKey
-                Column(
-                    Modifier
-                        .width(96.dp)
+        CollapsibleSection(t("sec.typography")) {
+            SelectField(
+                value = s.prefs.font, modifier = Modifier.fillMaxWidth(),
+                options = FONT_OPTIONS.map { it.id to it.name },
+                onChange = { vm.updatePrefs { p -> p.copy(font = it) } },
+            )
+        }
+        CollapsibleSection(t("sec.presets")) {
+            val activeKey = activePresetKey(s.theme, s.categories)
+            val tick = rememberHapticTick()
+            FlowRow2(spacedBy = 8.dp) {
+                PRESETS.toList().forEach { (key, preset) ->
+                    val active = key == activeKey
+                    Column(
+                        Modifier
+                            .width(96.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { tick(); vm.applyPreset(key) }
+                            .padding(10.dp),
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            listOf(preset.bg, preset.surface, preset.accent).forEach { c ->
+                                Box(
+                                    Modifier.size(18.dp).clip(RoundedCornerShape(4.dp))
+                                        .background(parseColor(c) ?: Color.Transparent)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            key.replaceFirstChar { it.uppercase() },
+                            fontSize = 11.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+        CollapsibleSection(t("sec.interface")) {
+            listOf(
+                "bg" to t("drawer.colorBackground"),
+                "surface" to t("drawer.colorSurface"),
+                "accent" to t("drawer.colorAccent"),
+                "accentFg" to t("drawer.colorAccentText"),
+                "text" to t("drawer.colorText")
+            ).forEach { (k, l) ->
+                ColorRow(l, themeField(s, k)) { vm.updateColor(k, it) }
+            }
+        }
+        CollapsibleSection(t("sec.status")) {
+            listOf(
+                "positive" to t("drawer.positiveUnder"),
+                "warning" to t("drawer.warningNear"),
+                "negative" to t("drawer.negativeOver")
+            ).forEach { (k, l) ->
+                ColorRow(l, themeField(s, k)) { vm.updateColor(k, it) }
+            }
+
+        }
+        CollapsibleSection(t("drawer.wallpaper")) {
+            val context = LocalContext.current
+            val wallpaperPicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri ->
+                uri?.let { vm.setWallpaperFromUri(context, it) }
+            }
+
+            if (!s.prefs.wallpaper.isNullOrEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(110.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable { tick(); vm.applyPreset(key) }
-                        .padding(10.dp),
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        listOf(preset.bg, preset.surface, preset.accent).forEach { c ->
-                            Box(
-                                Modifier.size(18.dp).clip(RoundedCornerShape(4.dp))
-                                    .background(parseColor(c) ?: Color.Transparent)
-                            )
+                    val bitmap = remember(s.prefs.wallpaper) {
+                        try {
+                            BitmapFactory.decodeFile(s.prefs.wallpaper)?.asImageBitmap()
+                        } catch (e: Exception) {
+                            null
                         }
                     }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        key.replaceFirstChar { it.uppercase() },
-                        fontSize = 11.sp,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
-                    )
-                }
-            }
-        }
-        SectionTitle("Interface")
-        listOf(
-            "bg" to "Background",
-            "surface" to "Surface",
-            "accent" to "Accent",
-            "accentFg" to "Accent text",
-            "text" to "Text"
-        ).forEach { (k, l) ->
-            ColorRow(l, themeField(s, k)) { vm.updateColor(k, it) }
-        }
-        SectionTitle("Status")
-        listOf(
-            "positive" to "Positive / Under",
-            "warning" to "Warning / Near",
-            "negative" to "Negative / Over"
-        ).forEach { (k, l) ->
-            ColorRow(l, themeField(s, k)) { vm.updateColor(k, it) }
-        }
-
-        SectionTitle("Wallpaper")
-        val context = LocalContext.current
-        val wallpaperPicker = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.GetContent()
-        ) { uri ->
-            uri?.let { vm.setWallpaperFromUri(context, it) }
-        }
-
-        if (!s.prefs.wallpaper.isNullOrEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-            ) {
-                val bitmap = remember(s.prefs.wallpaper) {
-                    try {
-                        BitmapFactory.decodeFile(s.prefs.wallpaper)?.asImageBitmap()
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = "Wallpaper preview",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .then(if (s.prefs.wallBlur > 0) Modifier.blur(s.prefs.wallBlur.dp) else Modifier)
-                    )
-                }
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            (parseColor(s.theme.bg) ?: Color.Black).copy(alpha = s.prefs.wallpaperDim / 100f)
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = t("drawer.wallpaperPreview"),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(if (s.prefs.wallBlur > 0) Modifier.blur(s.prefs.wallBlur.dp) else Modifier)
                         )
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                (parseColor(s.theme.bg) ?: Color.Black).copy(alpha = s.prefs.wallpaperDim / 100f)
+                            )
+                    )
+                }
+
+                SliderRow(
+                    label = t("drawer.backgroundDim"),
+                    valueText = "${s.prefs.wallpaperDim}%",
+                    value = s.prefs.wallpaperDim.toFloat(),
+                    range = 0f..90f,
+                    steps = 17,
+                    onValueChange = { vm.updateWallpaperDim(it.toInt()) }
                 )
-            }
+                SliderRow(
+                    label = t("drawer.blurIntensity"),
+                    valueText = "${s.prefs.wallBlur}dp",
+                    value = s.prefs.wallBlur.toFloat(),
+                    range = 0f..20f,
+                    steps = 19,
+                    onValueChange = { vm.updateWallBlur(it.toInt()) }
+                )
 
-            SliderRow(
-                label = "Background dim",
-                valueText = "${s.prefs.wallpaperDim}%",
-                value = s.prefs.wallpaperDim.toFloat(),
-                range = 0f..90f,
-                steps = 17,
-                onValueChange = { vm.updateWallpaperDim(it.toInt()) }
-            )
-            SliderRow(
-                label = "Blur intensity",
-                valueText = "${s.prefs.wallBlur}dp",
-                value = s.prefs.wallBlur.toFloat(),
-                range = 0f..20f,
-                steps = 19,
-                onValueChange = { vm.updateWallBlur(it.toInt()) }
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Btn(
+                        t("drawer.replacePhoto"),
+                        onClick = { wallpaperPicker.launch("image/*") },
+                        variant = "secondary",
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.Upload
+                    )
+                    Btn(
+                        t("log.remove"),
+                        onClick = { vm.clearWallpaper(context) },
+                        variant = "ghost",
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.Delete
+                    )
+                }
+            } else {
                 Btn(
-                    "Replace photo",
+                    t("drawer.setPhotoWallpaper"),
                     onClick = { wallpaperPicker.launch("image/*") },
                     variant = "secondary",
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.Upload
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Outlined.Image
                 )
-                Btn(
-                    "Remove",
-                    onClick = { vm.clearWallpaper(context) },
-                    variant = "ghost",
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.Delete
-                )
+                SectionDesc(t("drawer.wallpaperDesc"))
             }
-        } else {
+
+        }
+        CollapsibleSection(t("drawer.liquidGlass")) {
+            ToggleRow(
+                t("drawer.glassCards"),
+                t("drawer.glassCardsDesc"),
+                s.prefs.glassEnabled
+            ) {
+                vm.toggleGlass(it)
+            }
+            ToggleRow(
+                t("drawer.glassScreens"),
+                t("drawer.glassScreensDesc"),
+                s.prefs.glassScreens
+            ) {
+                vm.updatePrefs { p -> p.copy(glassScreens = it) }
+            }
+            ToggleRow(
+                t("drawer.glassInside"),
+                t("drawer.glassInsideDesc"),
+                s.prefs.glassScreensInside
+            ) {
+                vm.updatePrefs { p -> p.copy(glassScreensInside = it) }
+            }
+            if (s.prefs.glassEnabled || s.prefs.glassScreens) {
+                SliderRow(
+                    label = t("drawer.gaussianBlur"),
+                    valueText = "${s.prefs.glassBlur}dp",
+                    value = s.prefs.glassBlur.toFloat(),
+                    range = 0f..24f,
+                    steps = 23,
+                    onValueChange = { vm.updateGlassBlur(it.toInt()) }
+                )
+                SliderRow(
+                    label = t("drawer.transparency"),
+                    valueText = "${s.prefs.glassOpacity}%",
+                    value = s.prefs.glassOpacity.toFloat(),
+                    range = 20f..100f,
+                    steps = 15,
+                    onValueChange = { vm.updateGlassOpacity(it.toInt()) }
+                )
+                SliderRow(
+                    label = t("drawer.subCardOpacity"),
+                    valueText = "${s.prefs.glassInnerOpacity}%",
+                    value = s.prefs.glassInnerOpacity.toFloat(),
+                    range = 0f..100f,
+                    steps = 19,
+                    onValueChange = { vm.updateGlassInnerOpacity(it.toInt()) }
+                )
+                SliderRow(
+                    label = t("drawer.refractionHeight"),
+                    valueText = "${s.prefs.glassRefractionHeight}dp",
+                    value = s.prefs.glassRefractionHeight.toFloat(),
+                    range = 0f..40f,
+                    steps = 19,
+                    onValueChange = { vm.updateGlassRefractionHeight(it.toInt()) }
+                )
+                SliderRow(
+                    label = t("drawer.refractionAmount"),
+                    valueText = "${s.prefs.glassRefraction}dp",
+                    value = s.prefs.glassRefraction.toFloat(),
+                    range = 0f..40f,
+                    steps = 19,
+                    onValueChange = { vm.updateGlassRefraction(it.toInt()) }
+                )
+                SliderRow(
+                    label = t("drawer.chromaticAmount"),
+                    valueText = "${s.prefs.glassChromaticAmount}%",
+                    value = s.prefs.glassChromaticAmount.toFloat(),
+                    range = 0f..100f,
+                    steps = 19,
+                    onValueChange = { vm.updateGlassChromaticAberration(it.toInt()) }
+                )
+                SectionDesc(t("drawer.chromaDesc"))
+            }
+
+        }
+
+        CollapsibleSection(t("drawer.widgets.title")) {
+            val context = LocalContext.current
+            SectionDesc(t("drawer.widgets.desc"))
+            FieldLabel(t("drawer.widgets.theme"))
+            Spacer(Modifier.height(4.dp))
+            RangeTabs(
+                options = listOf("dark" to t("drawer.widgets.dark"), "light" to t("drawer.widgets.light")),
+                selected = if (s.prefs.widgetDark) "dark" else "light",
+                onSelect = { vm.updatePrefs { p -> p.copy(widgetDark = it == "dark") } },
+            )
+            // Re-render placed widgets as soon as the theme changes; both calls no-op
+            // safely when nothing is on the home screen.
+            LaunchedEffect(s.prefs.widgetDark) {
+                LedgerWidget.refresh(context)
+                WidgetRefresher.refreshNew(context)
+            }
+        }
+
+        CollapsibleSection(t("drawer.screenEdges")) {
+            ToggleRow(
+                t("pref.edgeBlur"),
+                t("drawer.edgeBlurDesc"),
+                s.prefs.edgeBlur,
+            ) { vm.updatePrefs { p -> p.copy(edgeBlur = it) } }
+        }
+
+        CollapsibleSection(t("sec.cardLayout")) {
+            SectionDesc(t("drawer.cardLayoutDesc"))
             Btn(
-                "Set photo wallpaper",
-                onClick = { wallpaperPicker.launch("image/*") },
-                variant = "secondary",
-                modifier = Modifier.fillMaxWidth(),
-                icon = Icons.Outlined.Image
+                t("drawer.resetCardOrder"),
+                onClick = vm::resetCardOrder,
+                variant = "ghost",
+                modifier = Modifier.fillMaxWidth()
             )
-            SectionDesc("Upload a custom photo for your dashboard background.")
         }
-
-        SectionTitle("Liquid glass")
-        ToggleRow(
-            "Liquid glass cards",
-            "Give the dashboard cards a frosted, translucent glass look over your wallpaper.",
-            s.prefs.glassEnabled
-        ) {
-            vm.toggleGlass(it)
-        }
-        ToggleRow(
-            "Liquid glass screens",
-            "Give the Log a spend and History drawers a frosted glass backdrop.",
-            s.prefs.glassScreens
-        ) {
-            vm.updatePrefs { p -> p.copy(glassScreens = it) }
-        }
-        ToggleRow(
-            "Glass the inside cards",
-            "Instead of the backdrop, make the Log a spend and History cards themselves liquid glass (on a flat light background).",
-            s.prefs.glassScreensInside
-        ) {
-            vm.updatePrefs { p -> p.copy(glassScreensInside = it) }
-        }
-        if (s.prefs.glassEnabled || s.prefs.glassScreens) {
-            SliderRow(
-                label = "Gaussian blur",
-                valueText = "${s.prefs.glassBlur}dp",
-                value = s.prefs.glassBlur.toFloat(),
-                range = 0f..24f,
-                steps = 23,
-                onValueChange = { vm.updateGlassBlur(it.toInt()) }
-            )
-            SliderRow(
-                label = "Transparency",
-                valueText = "${s.prefs.glassOpacity}%",
-                value = s.prefs.glassOpacity.toFloat(),
-                range = 20f..100f,
-                steps = 15,
-                onValueChange = { vm.updateGlassOpacity(it.toInt()) }
-            )
-            SliderRow(
-                label = "Refraction height",
-                valueText = "${s.prefs.glassRefractionHeight}dp",
-                value = s.prefs.glassRefractionHeight.toFloat(),
-                range = 0f..40f,
-                steps = 19,
-                onValueChange = { vm.updateGlassRefractionHeight(it.toInt()) }
-            )
-            SliderRow(
-                label = "Refraction amount",
-                valueText = "${s.prefs.glassRefraction}dp",
-                value = s.prefs.glassRefraction.toFloat(),
-                range = 0f..40f,
-                steps = 19,
-                onValueChange = { vm.updateGlassRefraction(it.toInt()) }
-            )
-            SliderRow(
-                label = "Chromatic aberration amount",
-                valueText = "${s.prefs.glassChromaticAmount}%",
-                value = s.prefs.glassChromaticAmount.toFloat(),
-                range = 0f..100f,
-                steps = 19,
-                onValueChange = { vm.updateGlassChromaticAberration(it.toInt()) }
-            )
-            SectionDesc("Chrom. aberration creates a prismatic RGB edge on the refraction; 0% = off. Applied to the bottom navigation pill and the dashboard cards. Lower transparency = more frosted.")
-        }
-
-        SectionTitle("Card layout")
-        SectionDesc("Use the arrow buttons on each card to rearrange the order.")
-        Btn("Reset card order", onClick = vm::resetCardOrder, variant = "ghost", modifier = Modifier.fillMaxWidth())
     }
 }
 
 @Composable
 private fun ChartTab(vm: LedgerViewModel, s: LedgerState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionTitle("Preview")
+        SectionTitle(t("drawer.preview"))
         val previewSlices = remember(s.cats) {
             val pcts = listOf(35.0, 25.0, 25.0, 15.0)
             var cum = 0.0
@@ -593,20 +695,25 @@ private fun ChartTab(vm: LedgerViewModel, s: LedgerState) {
             centerValue = "", centerSub = "",
             modifier = Modifier.align(Alignment.CenterHorizontally),
         )
-        SliderRow("Ring thickness", String.format("%.1f", s.prefs.pieThickness), s.prefs.pieThickness, 1f..8f) {
+        SliderRow(
+            t("drawer.ringThickness"),
+            String.format("%.1f", s.prefs.pieThickness),
+            s.prefs.pieThickness,
+            1f..8f
+        ) {
             vm.updatePrefs { p -> p.copy(pieThickness = it) }
         }
-        SliderRow("Segment gap", String.format("%.1f", s.prefs.pieGap), s.prefs.pieGap, 0f..4f) {
+        SliderRow(t("drawer.segmentGap"), String.format("%.1f", s.prefs.pieGap), s.prefs.pieGap, 0f..4f) {
             vm.updatePrefs { p -> p.copy(pieGap = it) }
         }
-        SectionTitle("Trend style")
+        SectionTitle(t("drawer.trendStyle"))
         RangeTabs(
-            options = listOf("line" to "Line chart", "heatmap" to "Heatmap"),
+            options = listOf("line" to t("drawer.lineChart"), "heatmap" to t("drawer.heatmap")),
             selected = s.prefs.trendStyle,
             onSelect = { vm.updatePrefs { p -> p.copy(trendStyle = it) } },
         )
         if (s.prefs.trendStyle == "heatmap") {
-            SectionTitle("Heatmap colors")
+            SectionTitle(t("drawer.heatmapColors"))
             val tick = rememberHapticTick()
             FlowRow2(spacedBy = 8.dp) {
                 HEAT_PRESETS.toList().forEach { (key, entry) ->
@@ -640,14 +747,14 @@ private fun ChartTab(vm: LedgerViewModel, s: LedgerState) {
             HEAT_LEVELS.forEach { k ->
                 val current = s.prefs.heatColors[k] ?: "transparent"
                 ColorRow(
-                    if (k == "l0") "Empty days" else "Level ${k.removePrefix("l")}",
-                    if (current == "transparent") "none" else current,
+                    if (k == "l0") t("drawer.emptyDays") else t("drawer.level", "n" to k.removePrefix("l")),
+                    if (current == "transparent") t("drawer.none") else current,
                 ) { vm.updatePrefs { p -> p.copy(heatColors = p.heatColors + (k to it)) } }
             }
-            SectionDesc("\"Empty days\" is the base cell color — set to none for the default transparent look.")
+            SectionDesc(t("drawer.emptyDaysDesc"))
         }
-        SectionTitle("Category colors")
-        SectionDesc("Controls pie chart, bar chart, and badges.")
+        SectionTitle(t("drawer.categoryColors"))
+        SectionDesc(t("drawer.categoryColorsDesc"))
         s.cats.forEach { c ->
             ColorRow("${c.glyph} ${c.label}", c.color) { vm.updateCatColor(c.id, it) }
         }
@@ -659,7 +766,7 @@ private fun CatsTab(vm: LedgerViewModel, s: LedgerState) {
     var name by remember { mutableStateOf("") }
     var glyph by remember { mutableStateOf("★") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionTitle("Your categories")
+        SectionTitle(t("drawer.yourCategories"))
         s.categories.forEach { c ->
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(c.glyph, fontSize = 15.sp, modifier = Modifier.width(28.dp))
@@ -668,7 +775,7 @@ private fun CatsTab(vm: LedgerViewModel, s: LedgerState) {
                     IconButton(onClick = { vm.removeCategory(c.id) }) {
                         Icon(
                             Icons.Outlined.Delete,
-                            "Remove",
+                            t("log.remove"),
                             Modifier.size(15.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -676,88 +783,232 @@ private fun CatsTab(vm: LedgerViewModel, s: LedgerState) {
                 }
             }
         }
-        SectionTitle("Add category")
+        SectionTitle(t("drawer.addCategory"))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppTextField(
                 value = name,
                 onChange = { name = it },
                 modifier = Modifier.weight(1f),
-                placeholder = "Name (e.g. Health)"
+                placeholder = t("drawer.categoryNamePlaceholder")
             )
             AppTextField(value = glyph, onChange = { glyph = it }, modifier = Modifier.width(56.dp), placeholder = "★")
             Btn("", onClick = { vm.addCategory(name, glyph); name = ""; glyph = "★" }, icon = Icons.Outlined.Add)
         }
-        SectionDesc("Use short symbols (◇ ★ ♥ ● ▲ ◐) for the icon.")
+        SectionDesc(t("drawer.categoryGlyphDesc"))
     }
 }
 
 @Composable
+private fun TravelTab(vm: LedgerViewModel, s: LedgerState) {
+    val tr = s.prefs.travel
+    /* Entries keep the currency they were logged in, so a trip can hold several. */
+    val rows = s.travelList
+        .groupBy { it.currency ?: tr.currency }
+        .map { (code, list) ->
+            TravelCurrencyRow(code, list.sumOf { it.foreignAmount ?: it.amount }, list.sumOf { it.amount }, list.size)
+        }
+        .sortedByDescending { it.home }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        /* Travel mode sits at the top so the toggle stays reachable while a trip is inactive. */
+        SectionDesc(t("travel.desc"))
+        ToggleRow(
+            t("travel.toggle"),
+            if (s.travelActive) t("drawer.travelOn") else t("drawer.travelOff"),
+            tr.active,
+        ) { on -> vm.updatePrefs { p -> p.copy(travel = p.travel.copy(active = on)) } }
+        if (tr.active) {
+            FieldLabel(t("travel.tripName"))
+            AppTextField(
+                value = tr.name,
+                onChange = { v -> vm.updatePrefs { p -> p.copy(travel = p.travel.copy(name = v)) } },
+                placeholder = t("travel.tripNamePlaceholder"),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            FieldLabel(t("travel.currency"))
+            SelectField(
+                value = tr.currency, modifier = Modifier.fillMaxWidth(),
+                options = CURRENCIES.toList().map { (k, v) -> k to "${v.symbol} $k — ${v.label}" },
+                onChange = { v -> vm.updatePrefs { p -> p.copy(travel = p.travel.copy(currency = v)) } },
+            )
+            FieldLabel(t("travel.rate"))
+            AppTextField(
+                value = fmtRate(tr.rate),
+                onChange = { v ->
+                    val n = v.filter { it.isDigit() || it == '.' }.toDoubleOrNull() ?: 0.0
+                    vm.updatePrefs { p -> p.copy(travel = p.travel.copy(rate = n)) }
+                },
+                placeholder = t("drawer.ratePlaceholder"),
+                mono = true, numeric = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SectionDesc(t("travel.rateNote", "foreign" to tr.currency))
+            ToggleRow(t("travel.rateAuto"), t("travel.rateAutoDesc"), tr.rateAuto) { on ->
+                vm.updatePrefs { p -> p.copy(travel = p.travel.copy(rateAuto = on)) }
+            }
+            Btn(
+                if (vm.rateStatus == "loading") t("travel.rateFetching") else t("travel.refreshRate"),
+                onClick = { vm.refreshTravelRate() },
+                variant = "secondary",
+                icon = Icons.Outlined.Bolt,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = vm.rateStatus != "loading",
+            )
+            if (vm.rateStatus.isNotEmpty() && vm.rateStatus != "loading") {
+                SectionDesc(
+                    when {
+                        vm.rateStatus == "error" -> t("travel.rateFailed")
+                        vm.rateStatus.startsWith("ok:") ->
+                            t("travel.rateAsOf", "date" to vm.rateStatus.removePrefix("ok:"))
+
+                        else -> t("travel.rateUpdated")
+                    }
+                )
+            }
+            SectionDesc(t("travel.ratePrivacy"))
+            FieldLabel(t("setup.startDate"))
+            DateField(
+                value = tr.start,
+                onChange = { v -> vm.updatePrefs { p -> p.copy(travel = p.travel.copy(start = v)) } },
+                maxDate = "",
+            )
+            Btn(t("travel.end"), onClick = vm::endTravel, variant = "ghost", modifier = Modifier.fillMaxWidth())
+        }
+
+        /* Home currency is every conversion's reference. */
+        CollapsibleSection(t("travel.homeCurrency"), initiallyOpen = true) {
+            SelectField(
+                value = s.cur, modifier = Modifier.fillMaxWidth(),
+                options = CURRENCIES.toList().map { (k, v) -> k to "${v.symbol} $k — ${v.label}" },
+                onChange = { vm.updatePrefs { p -> p.copy(currency = it) } },
+            )
+            SectionDesc(t("travel.homeCurrencyDesc"))
+        }
+
+        CollapsibleSection(t("travel.currenciesUsed")) {
+            SectionDesc(t("travel.currenciesUsedDesc"))
+            if (rows.isEmpty()) SectionDesc(t("travel.noCurrencies"))
+            rows.forEach { r ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        r.code, Modifier.width(46.dp), fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace,
+                    )
+                    Text(
+                        fmt(r.foreign, r.code),
+                        Modifier.weight(1f),
+                        fontSize = 12.5.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        "≈ ${fmt(r.home, s.cur)}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text("${r.count}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+/** One row of the per-currency breakdown shown in the Travel tab. */
+private data class TravelCurrencyRow(val code: String, val foreign: Double, val home: Double, val count: Int)
+
+/** Shows a rate with enough decimals that a small one doesn't collapse to "0.03". */
+private fun fmtRate(rate: Double): String = String.format("%.${rateDecimals(rate)}f", rate)
+
+@Composable
 private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionTitle("Preferences")
-        ToggleRow("Compact density", "Tighter spacing throughout the app.", s.prefs.compact) {
+        CollapsibleSection(t("sec.language"), initiallyOpen = true) {
+            SelectField(
+                value = s.prefs.lang, modifier = Modifier.fillMaxWidth(),
+                options = Strings.LANGS,
+                onChange = { vm.setLanguage(it) },
+            )
+            SectionDesc(t("drawer.languageDesc"))
+        }
+
+        CollapsibleSection(t("sec.streaks"), initiallyOpen = true) {
+            SectionDesc(t("drawer.streaksDesc"))
+            RangeTabs(
+                options = listOf("0" to t("pref.graceOff"), "1" to t("drawer.oneDay"), "2" to t("drawer.twoDays")),
+                selected = s.prefs.streakGrace.toString(),
+                onSelect = { vm.updatePrefs { p -> p.copy(streakGrace = it.toIntOrNull() ?: 0) } },
+            )
+        }
+
+        SectionTitle(t("sec.preferences"))
+        ToggleRow(t("pref.compact"), t("pref.compactDesc"), s.prefs.compact) {
             vm.updatePrefs { p -> p.copy(compact = it) }
         }
         ToggleRow(
-            "Group history by date",
-            "Show Today, Yesterday, This week, and monthly headers.",
+            t("pref.groupHistory"),
+            t("pref.groupHistoryDesc"),
             s.prefs.groupHistory
         ) {
             vm.updatePrefs { p -> p.copy(groupHistory = it) }
         }
-        SectionTitle("Balance")
+        SectionTitle(t("sec.balance"))
         ToggleRow(
-            "Bank balance system",
-            if (s.balancesOn) "On — keep a balance, move money to your budget, and bank leftover allowance at the end of each day."
-            else "Off — plain budgeting without a balance or transfers.",
+            t("pref.balances"),
+            if (s.balancesOn) t("pref.balancesOn")
+            else t("pref.balancesOff"),
             s.balancesOn,
         ) { vm.updatePrefs { p -> p.copy(balancesEnabled = it) } }
         if (s.balancesOn) {
-            FieldLabel("Hero shows")
+            FieldLabel(t("pref.heroShows"))
             Spacer(Modifier.height(4.dp))
             RangeTabs(
-                options = listOf("daily" to "Daily allowance", "balance" to "Balance"),
+                options = listOf("daily" to t("pref.heroDaily"), "balance" to t("pref.heroBalance")),
                 selected = s.heroMode,
                 onSelect = { vm.updatePrefs { p -> p.copy(heroMode = it) } },
             )
         }
-        SectionTitle("Budget")
+        SectionTitle(t("drawer.budget"))
         ToggleRow(
-            "Overspends come from balance",
-            "When you spend more than a day's allowance, take it out of your bank balance. Off = the overspend is covered by the monthly budget.",
+            t("drawer.overspendFromBalance"),
+            t("drawer.overspendFromBalanceDesc"),
             s.prefs.overspendFromBalance
         ) {
             vm.updatePrefs { p -> p.copy(overspendFromBalance = it) }
         }
 
-        SectionTitle("Currency")
-        SelectField(
-            value = s.cur, modifier = Modifier.fillMaxWidth(),
-            options = CURRENCIES.toList().map { (k, v) -> k to "${v.symbol} $k — ${v.label}" },
-            onChange = { vm.updatePrefs { p -> p.copy(currency = it) } },
-        )
+        SectionTitle(t("drawer.security"))
+        ToggleRow(
+            t("sec.appLock"),
+            t("drawer.appLockDesc"),
+            s.prefs.appLockEnabled,
+        ) {
+            vm.updatePrefs { p -> p.copy(appLockEnabled = it) }
+        }
 
-        SectionTitle("Notifications & reminders")
+        SectionTitle(t("drawer.notifications"))
         val context = LocalContext.current
         ToggleRow(
-            "Daily spend reminder",
-            "Get an evening reminder to log your daily expenses.",
+            t("drawer.dailyReminder"),
+            t("drawer.dailyReminderDesc"),
             s.prefs.notificationsEnabled
         ) {
             vm.toggleNotifications(it, context)
         }
 
         if (s.prefs.notificationsEnabled) {
-            FieldLabel("Reminder time")
+            FieldLabel(t("drawer.reminderTime"))
             Spacer(Modifier.height(4.dp))
             val timeKey = "${s.prefs.reminderHour}:${s.prefs.reminderMinute}"
             val timeOptions = listOf(
-                "19:0" to "7:00 PM (19:00)",
-                "20:0" to "8:00 PM (20:00)",
-                "21:0" to "9:00 PM (21:00)",
-                "22:0" to "10:00 PM (22:00)",
-                "12:0" to "12:00 PM (12:00)",
-                "18:0" to "6:00 PM (18:00)",
+                "19:0" to t("drawer.time1900"),
+                "20:0" to t("drawer.time2000"),
+                "21:0" to t("drawer.time2100"),
+                "22:0" to t("drawer.time2200"),
+                "12:0" to t("drawer.time1200"),
+                "18:0" to t("drawer.time1800"),
             )
             SelectField(
                 value = timeKey,
@@ -772,15 +1023,15 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
             )
 
             ToggleRow(
-                "Budget alert warnings",
-                "Notify when spending exceeds your daily allowance.",
+                t("drawer.budgetAlertWarnings"),
+                t("drawer.budgetAlertWarningsDesc"),
                 s.prefs.budgetAlertsEnabled
             ) {
                 vm.toggleBudgetAlerts(it)
             }
 
             Btn(
-                "Send test reminder",
+                t("drawer.sendTestReminder"),
                 onClick = { vm.testReminderNotification(context) },
                 variant = "ghost",
                 modifier = Modifier.fillMaxWidth(),
@@ -788,7 +1039,7 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
             )
         }
 
-        SectionTitle("Cloud sync")
+        SectionTitle(t("sec.cloudSync"))
         if (s.isFirebaseConfigured) {
             val authUser = s.authUser
             if (authUser != null) {
@@ -815,14 +1066,14 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = authUser.name ?: authUser.email ?: "Signed in",
+                            text = authUser.name ?: authUser.email ?: t("drawer.signedIn"),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                         )
                         val subText = if (s.syncError) {
-                            if (s.syncErrorMsg.isNotEmpty()) s.syncErrorMsg else "Sync error — will retry automatically"
+                            if (s.syncErrorMsg.isNotEmpty()) s.syncErrorMsg else t("drawer.syncErrorRetry")
                         } else {
                             authUser.email ?: ""
                         }
@@ -834,7 +1085,7 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
                         )
                         if (!s.syncError && authUser.uid.isNotEmpty()) {
                             Text(
-                                text = "Account ID ${authUser.uid.take(8)}…",
+                                text = t("drawer.accountId", "id" to authUser.uid.take(8)),
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -843,13 +1094,13 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
                         if (!s.syncError && s.lastSyncedAt > 0L) {
                             val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(s.lastSyncedAt))
                             Text(
-                                text = "Last synced $timeStr",
+                                text = t("drawer.lastSynced", "time" to timeStr),
                                 fontSize = 10.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                    Btn("Sign out", onClick = vm::signOutGoogle, variant = "ghost", small = true)
+                    Btn(t("drawer.signOut"), onClick = vm::signOutGoogle, variant = "ghost", small = true)
                 }
             } else {
                 val context = LocalContext.current
@@ -863,19 +1114,25 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
                         if (idToken != null) {
                             vm.signInWithGoogleToken(idToken)
                         } else {
-                            vm.showToast("Couldn't retrieve Google ID token.", "error")
+                            vm.showToast(t("app.googleIdTokenError"), "error")
                         }
                     } catch (e: ApiException) {
                         if (e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CANCELLED) {
-                            vm.showToast("Sign-in cancelled.", "info")
+                            vm.showToast(t("app.signInCancelled"), "info")
                         } else {
-                            vm.showToast("Google sign-in error (${e.statusCode}): ${e.localizedMessage ?: ""}", "error")
+                            vm.showToast(
+                                t(
+                                    "app.googleSignInError",
+                                    "code" to e.statusCode,
+                                    "message" to (e.localizedMessage ?: "")
+                                ), "error"
+                            )
                         }
                     }
                 }
 
                 Btn(
-                    "Sign in with Google",
+                    t("app.signInWithGoogle"),
                     onClick = {
                         findActivity(context)?.let { vm.signInGoogle(it, googleSignInLauncher) }
                     },
@@ -886,20 +1143,20 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
             }
             SectionDesc(
                 if (authUser != null)
-                    "Your budget, balance, expenses, transfers, categories, theme and preferences sync automatically. The newest copy wins — edits from any device appear here."
+                    t("drawer.syncDescSignedIn")
                 else
-                    "Sign in to back up and sync your budget across devices with your Google account. Your data stays private — only you can read your copy."
+                    t("drawer.syncDescSignIn")
             )
         } else {
             SectionDesc(
-                "Sync is ready but needs a Firebase project. Open FirebaseConfig.kt, find the FIREBASE_CONFIG values, and paste your Firebase project config. Then enable Google sign-in and create a Firestore database with security rules."
+                t("drawer.syncNeedsFirebase")
             )
         }
-        SectionTitle("Keyboard shortcuts")
+        SectionTitle(t("sec.shortcuts"))
         listOf(
-            "Log spend" to "Tap the Log spend button",
-            "History" to "Tap the History button",
-            "Light / dark" to "Themes tab → Toggle light / dark",
+            t("app.nav.logSpend") to t("drawer.shortcutLogSpendDesc"),
+            t("history.title") to t("drawer.shortcutHistoryDesc"),
+            t("drawer.lightDark") to t("drawer.shortcutLightDarkDesc"),
         ).forEach { (k, v) ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(k, fontSize = 13.sp)
@@ -907,7 +1164,7 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Btn("Reset theme to default", onClick = vm::resetTheme, variant = "ghost", modifier = Modifier.fillMaxWidth())
+        Btn(t("drawer.resetTheme"), onClick = vm::resetTheme, variant = "ghost", modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -941,7 +1198,7 @@ private fun DrawerSheet(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .then(
-                    if (contentHeight != null) Modifier.height(contentHeight)
+                    if (contentHeight != null) Modifier.heightIn(min = 460.dp, max = contentHeight)
                     else Modifier.heightIn(min = 460.dp)
                 )
                 .clip(shape)

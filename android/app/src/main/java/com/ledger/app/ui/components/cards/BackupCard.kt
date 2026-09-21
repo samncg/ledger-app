@@ -28,6 +28,7 @@ import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.Btn
 import com.ledger.app.ui.components.CardContainer
+import com.ledger.app.ui.t
 import java.io.IOException
 
 /* Data & backup — JSON / CSV export, import, budget & money shortcuts */
@@ -47,9 +48,9 @@ fun BackupCard(
         if (uri != null) {
             try {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(vm.exportJson().toByteArray()) }
-                vm.showToast("Backup downloaded.", "success")
+                vm.showToast(t("card.backup.downloaded"), "success")
             } catch (e: IOException) {
-                vm.showToast("Couldn't write the backup file.", "error")
+                vm.showToast(t("card.backup.writeBackupFailed"), "error")
             }
         }
     }
@@ -60,9 +61,9 @@ fun BackupCard(
         if (uri != null) {
             try {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(vm.exportCsv().toByteArray()) }
-                vm.showToast("CSV exported.", "success")
+                vm.showToast(t("card.backup.csvExported"), "success")
             } catch (e: IOException) {
-                vm.showToast("Couldn't write the CSV file.", "error")
+                vm.showToast(t("card.backup.writeCsvFailed"), "error")
             }
         }
     }
@@ -77,23 +78,23 @@ fun BackupCard(
                 val error = vm.importData(text)
                 if (error != null) vm.showToast(error, "error")
             } catch (e: Exception) {
-                vm.showToast("Couldn't read that file.", "error")
+                vm.showToast(t("card.backup.readFailed"), "error")
             }
         }
     }
 
-    CardContainer(title = "Data & backup", icon = Icons.Outlined.Storage) {
+    CardContainer(title = t("card.backup.title"), icon = Icons.Outlined.Storage) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn(
-                    "Backup (JSON)",
+                    t("card.backup.backupJson"),
                     onClick = { exportJsonLauncher.launch("ledger-backup-${s.today}.json") },
                     variant = "secondary",
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.Download
                 )
                 Btn(
-                    "Export CSV",
+                    t("card.backup.exportCsv"),
                     onClick = { exportCsvLauncher.launch("ledger-export-${s.today}.csv") },
                     variant = "secondary",
                     modifier = Modifier.weight(1f),
@@ -102,14 +103,14 @@ fun BackupCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn(
-                    "Load backup",
+                    t("card.backup.loadBackup"),
                     onClick = { importLauncher.launch(arrayOf("*/*")) },
                     variant = "ghost",
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.Upload
                 )
                 Btn(
-                    "Edit budget",
+                    t("card.backup.editBudget"),
                     onClick = onEditBudget,
                     variant = "ghost",
                     modifier = Modifier.weight(1f),
@@ -117,7 +118,7 @@ fun BackupCard(
                 )
             }
             Btn(
-                if (s.balancesOn) "Move money" else "Top up",
+                if (s.balancesOn) t("card.backup.moveMoney") else t("card.backup.topUp"),
                 onClick = onMoveMoney,
                 variant = "ghost",
                 modifier = Modifier.fillMaxWidth(),
@@ -132,16 +133,25 @@ fun BackupCard(
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
             val footerText = if (s.authUser != null) {
-                "Cloud sync is active (${s.authUser.email ?: s.authUser.name ?: "signed in"})."
+                t(
+                    "card.backup.cloudActive",
+                    "who" to (s.authUser.email ?: s.authUser.name ?: t("card.backup.signedIn"))
+                )
             } else {
-                "Your data is stored locally on this device. Sign in to cloud sync in Settings to sync across devices."
+                t("card.backup.localOnly")
             }
             Text(
                 footerText,
                 fontSize = 11.sp, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.height(0.dp))
-            Btn("Clear all", onClick = vm::clearAll, variant = "danger", small = true, icon = Icons.Outlined.Delete)
+            Btn(
+                t("card.backup.clearAll"),
+                onClick = vm::clearAll,
+                variant = "danger",
+                small = true,
+                icon = Icons.Outlined.Delete
+            )
         }
     }
 }

@@ -45,6 +45,7 @@ import com.kashif_e.backdrop.drawBackdrop
 import com.kashif_e.backdrop.effects.blur
 import com.kashif_e.backdrop.highlight.Highlight
 import com.kashif_e.backdrop.shadow.Shadow
+import com.ledger.app.ui.t
 
 /* ─── Bottom pill navigation ───
    History · Log spend · Settings, drawn in the app window (correct backdrop
@@ -133,7 +134,7 @@ fun LiquidGlassNavBar(
                     ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Outlined.Close, "Close", tint = cs.onSurface, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Outlined.Close, t("app.close"), tint = cs.onSurface, modifier = Modifier.size(22.dp))
                 }
             } else {
                 // Glass highlighter thumb (blur-only liquid glass, accent tint)
@@ -164,13 +165,25 @@ fun LiquidGlassNavBar(
                     Modifier.fillMaxSize(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    NavSegment(Icons.Outlined.History, "History", selected == SEG_HISTORY, false, segmentWidth) {
+                    NavSegment(
+                        Icons.Outlined.History,
+                        t("history.title"),
+                        selected == SEG_HISTORY,
+                        false,
+                        segmentWidth
+                    ) {
                         selected = SEG_HISTORY; onOpenHistory()
                     }
-                    NavSegment(Icons.Outlined.Add, "Log spend", selected == SEG_LOG, true, segmentWidth) {
+                    NavSegment(Icons.Outlined.Add, t("app.nav.logSpend"), selected == SEG_LOG, true, segmentWidth) {
                         selected = SEG_LOG; onLogSpend()
                     }
-                    NavSegment(Icons.Outlined.Palette, "Settings", selected == SEG_SETTINGS, false, segmentWidth) {
+                    NavSegment(
+                        Icons.Outlined.Palette,
+                        t("app.nav.settings"),
+                        selected == SEG_SETTINGS,
+                        false,
+                        segmentWidth
+                    ) {
                         selected = SEG_SETTINGS; onOpenDrawer()
                     }
                 }

@@ -45,6 +45,7 @@ import com.ledger.app.ui.components.CardContainer
 import com.ledger.app.ui.components.EmptyState
 import com.ledger.app.ui.components.SelectField
 import com.ledger.app.ui.components.DateField
+import com.ledger.app.ui.t
 import com.ledger.app.util.fmt
 import com.ledger.app.util.relativeDate
 
@@ -60,13 +61,13 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
     var autoNote by remember { mutableStateOf("") }
 
     CardContainer(
-        title = "Automations",
+        title = t("card.auto.title"),
         icon = Icons.Outlined.Bolt,
         count = if (s.recurring.isNotEmpty()) "(${s.recurring.size})" else null,
         trailing = if (s.recurring.isNotEmpty()) {
             {
                 Text(
-                    "Run now",
+                    t("card.auto.runNow"),
                     color = cs.primary,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -82,16 +83,16 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
             SelectField(
                 value = autoType, modifier = Modifier.weight(1f),
                 options = listOf(
-                    "expense" to "Spending",
-                    "budget" to "Top up budget",
-                ) + if (s.balancesOn) listOf("balance" to "Top up balance") else emptyList(),
+                    "expense" to t("card.auto.spending"),
+                    "budget" to t("card.auto.topUpBudget"),
+                ) + if (s.balancesOn) listOf("balance" to t("card.auto.topUpBalance")) else emptyList(),
                 onChange = { autoType = it },
             )
             AppTextField(
                 value = autoAmount,
                 onChange = { autoAmount = it },
                 modifier = Modifier.weight(1f),
-                placeholder = "Amount",
+                placeholder = t("card.auto.amount"),
                 mono = true,
                 numeric = true
             )
@@ -107,7 +108,7 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
             }
             SelectField(
                 value = autoFreq, modifier = Modifier.weight(1f),
-                options = FREQ_OPTIONS.toList(),
+                options = FREQ_OPTIONS.map { (k, _) -> k to autoFreqLabel(k) },
                 onChange = { autoFreq = it },
             )
             DateField(value = autoStart, onChange = { autoStart = it }, modifier = Modifier.weight(1f))
@@ -118,10 +119,10 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
                 value = autoNote,
                 onChange = { autoNote = it },
                 modifier = Modifier.weight(1f),
-                placeholder = "Note (optional)"
+                placeholder = t("card.auto.notePlaceholder")
             )
             Btn(
-                "Add",
+                t("card.auto.add"),
                 onClick = {
                     vm.addAutomation(autoType, autoAmount, autoCat, autoFreq, autoStart, autoNote); autoAmount =
                     ""; autoNote = ""
@@ -155,11 +156,11 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            "${FREQ_OPTIONS[r.freq] ?: r.freq} · ${fmt(r.amount, s.cur)} " +
+                            "${autoFreqLabel(r.freq)} · ${fmt(r.amount, s.cur)} " +
                                     when (r.type) {
                                         "expense" -> "· ${cat?.label ?: r.category}"
-                                        "budget" -> "to budget"
-                                        else -> "to balance"
+                                        "budget" -> t("card.auto.toBudget")
+                                        else -> t("card.auto.toBalance")
                                     },
                             fontSize = 12.5.sp, fontWeight = FontWeight.Medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -174,25 +175,38 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
                             )
                         }
                         Text(
-                            "Started ${relativeDate(r.start, s.today)} · ${vm.nextRun(r)}",
+                            t("card.auto.started", "date" to relativeDate(r.start, s.today), "next" to vm.nextRun(r)),
                             fontSize = 10.5.sp, color = cs.onSurfaceVariant,
                         )
                     }
                     IconButton(onClick = { vm.toggleAutomation(r.id) }) {
                         Icon(
                             if (r.active) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                            if (r.active) "Pause" else "Resume",
+                            if (r.active) t("card.auto.pause") else t("card.auto.resume"),
                             Modifier.size(16.dp),
                             tint = cs.onSurfaceVariant,
                         )
                     }
                     IconButton(onClick = { vm.removeAutomation(r.id) }) {
-                        Icon(Icons.Outlined.Delete, "Remove", Modifier.size(16.dp), tint = cs.onSurfaceVariant)
+                        Icon(
+                            Icons.Outlined.Delete,
+                            t("card.auto.remove"),
+                            Modifier.size(16.dp),
+                            tint = cs.onSurfaceVariant
+                        )
                     }
                 }
             }
         } else {
-            EmptyState("↻", "Repeating entries appear here.", "e.g. rent on the 1st, salary on the 25th.")
+            EmptyState("↻", t("card.auto.emptyTitle"), t("card.auto.emptyDesc"))
         }
     }
+}
+
+/* FREQ_OPTIONS lives outside this card, so its labels are mapped to card keys here. */
+private fun autoFreqLabel(id: String): String = when (id) {
+    "daily" -> t("card.auto.freqDaily")
+    "weekly" -> t("card.auto.freqWeekly")
+    "monthly" -> t("card.auto.freqMonthly")
+    else -> id
 }
