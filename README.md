@@ -91,6 +91,24 @@ cd android
 
 Requires **JDK 17+**, Android SDK (API 35), and **Kotlin 2.3.0** (the project uses Compose's shader-backed liquid-glass library). The full refraction/blur/vibrancy effects need an emulator or device on **Android API 33+** (AGSL); on API 26–32 the glass degrades to a basic blur.
 
+### Screenshots
+
+<p align="center">
+  <img src="android/screenshots/today.png" width="19%" alt="Today dashboard" />
+  <img src="android/screenshots/log-spend.png" width="19%" alt="Log a spend" />
+  <img src="android/screenshots/history.png" width="19%" alt="History" />
+  <img src="android/screenshots/breakdown.png" width="19%" alt="Category breakdown" />
+  <img src="android/screenshots/trend.png" width="19%" alt="Spending trend" />
+</p>
+<p align="center">
+  <img src="android/screenshots/heatmap.png" width="19%" alt="Spending heatmap" />
+  <img src="android/screenshots/insights.png" width="19%" alt="Monthly insights" />
+  <img src="android/screenshots/automations.png" width="19%" alt="Automations and piggy bank" />
+  <img src="android/screenshots/settings.png" width="19%" alt="Settings and themes" />
+</p>
+
+<p align="center"><sub>Today · Log spend · History · Category breakdown · Spending trend · Heatmap · Monthly insights · Automations &amp; piggy bank · Settings</sub></p>
+
 ## Data & privacy
 
 - **Web:** all data is stored in `localStorage` under `ledger-*` keys. Nothing is sent anywhere unless you sign in to cloud sync.
