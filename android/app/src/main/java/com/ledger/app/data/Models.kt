@@ -154,7 +154,7 @@ data class Prefs(
     val font: String = "default",    // default | sans | serif | mono | cursive
     val cardOrder: List<String> = defaultCardOrder,
     val balancesEnabled: Boolean = true,
-    val overspendFromBalance: Boolean = false, // deduct overspends from bank balance (else monthly budget)
+    val overspendFromBalance: Boolean = true, // deduct overspends from bank balance (else monthly budget)
     val heroMode: String = "daily",  // "daily" | "balance"
     val wallpaper: String? = null,
     val wallpaperDim: Int = 60,
@@ -167,12 +167,16 @@ data class Prefs(
     val glassEnabled: Boolean = false,
     val glassScreens: Boolean = false,
     val glassScreensInside: Boolean = false,
-    val glassBlur: Int = 8,
-    val glassOpacity: Int = 76,
-    val glassRefraction: Int = 24,
-    val glassRefractionHeight: Int = 12,
-    val glassChromaticAmount: Int = 0,
+    val glassBlur: Int = 0,
+    val glassOpacity: Int = 100,     // how solid the card material is (0 = clear, 100 = most solid)
+    val glassRefraction: Int = 14,
+    val glassRefractionHeight: Int = 14,
+    val glassChromaticAmount: Int = 50,
     val glassInnerOpacity: Int = 40, // opacity of the panels nested inside glass cards (0 = clear, 100 = solid)
+    val glassBarBlur: Int = 0,       // blur for the UI glass that is not a card (bottom bar, bubbles)
+    val glassBarOpacity: Int = 0,    // how solid that non-card glass is, set apart from the cards
+    val glassBar: Boolean = true,    // liquid glass for the bottom bar and bubbles (cards have their own toggle)
+    val leftHanded: Boolean = false, // mirror the floating buttons to the left, for left-handed use
     val streakGrace: Int = 0,        // missed days forgiven inside a spend streak (0 = off)
     val edgeBlur: Boolean = true,    // progressive blur+fade at the top and bottom of the screen
     val lang: String = "en",         // UI language: en | es | zh | ru | th | ja | ko
@@ -267,16 +271,12 @@ val defaultHeatColors = mapOf(
 val defaultCardOrder =
     listOf("log", "breakdown", "insights", "trend", "history", "streak", "auto", "piggy", "backup")
 
-/* Renamed card ids: a stored order written before the rename still holds the old id,
-   so it is translated here and the card keeps the slot the user put it in. */
-private val legacyCardIds = mapOf("trophies" to "streak")
-
 /**
  * Merge a stored card order with the known cards: keep the user's order, drop unknown
  * ids, and append cards added since — so shipping a new card never resets a layout.
  */
 fun mergeCardOrder(stored: List<String>): List<String> {
-    val kept = stored.map { legacyCardIds[it] ?: it }.filter { it in defaultCardOrder }.distinct()
+    val kept = stored.filter { it in defaultCardOrder }.distinct()
     return kept + defaultCardOrder.filter { it !in kept }
 }
 
@@ -292,9 +292,9 @@ fun cleanTags(tags: List<String>?): List<String> =
         .take(8)
 
 /**
- * Cards rendered on the dashboard. Log-spend and History live behind their
- * top-bar buttons, so they're filtered out here; piggy hides when the bank
- * balance system is off.
+ * Cards rendered on the dashboard. Log-spend and History live behind their own
+ * destinations, so they're filtered out here; piggy hides when the bank balance
+ * system is off.
  */
 fun dashboardCardOrder(stored: List<String>, balancesOn: Boolean): List<String> =
     mergeCardOrder(stored).filter { it != "log" && it != "history" }.filter { balancesOn || it != "piggy" }

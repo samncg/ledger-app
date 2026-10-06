@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,10 +40,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ledger.app.ui.HistoryData
@@ -58,12 +66,46 @@ import com.ledger.app.ui.components.FieldLabel
 import com.ledger.app.ui.components.RangeTabs
 import com.ledger.app.ui.components.ReceiptPreviewDialog
 import com.ledger.app.ui.components.ReceiptThumbnail
+import com.ledger.app.ui.components.dialTicks
+import com.ledger.app.ui.components.rememberHapticTick
 import com.ledger.app.ui.parseColor
 import com.ledger.app.ui.t
 import com.ledger.app.util.fmt
 import com.ledger.app.util.relativeDate
 
 /* History — filterable, searchable, sortable transaction list */
+
+/* One dial click per this much travel, and the band at each end that dissolves the list into
+   the card. The bands double as the list's content padding, so a row at rest is never caught
+   under the fade. */
+private val HISTORY_DIAL_DETENT = 44.dp
+private val HISTORY_EDGE = 32.dp
+
+/* Dissolves the list's ends into whatever sits behind them by masking the content's own alpha,
+   rather than painting a colour over it — so it reads the same on a solid card and on a liquid
+   glass one. A glass card's surface is translucent, so a surface-coloured fade showed as a band. */
+private fun Modifier.edgeFadeMask(band: Dp): Modifier =
+    this.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val h = size.height
+            val b = band.toPx()
+            if (h > 0f && b > 0f) {
+                val f = (b / h).coerceIn(0f, 0.5f)
+                /* Offscreen layer, so this DstIn masks only the list's own content rather than
+                   everything painted below it (which punched dark holes through the card). */
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        f to Color.Black,
+                        (1f - f) to Color.Black,
+                        1f to Color.Transparent,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+        }
+
 @Composable
 fun HistoryCard(
     vm: LedgerViewModel,
@@ -217,41 +259,52 @@ fun HistoryCard(
                 if (totalCount == 0) t("history.dataStays") else t("history.tryAdjust"),
             )
         } else {
-            LazyColumn(if (expand) Modifier.fillMaxHeight() else Modifier.heightIn(max = 420.dp)) {
-                data.groups.forEach { group ->
-                    if (group.label != null) {
-                        item(key = "h-${group.label}") {
-                            Row(
-                                Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    group.label,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = cs.onSurfaceVariant,
-                                    letterSpacing = 0.3.sp
-                                )
-                                Text(
-                                    fmt(group.total, s.cur),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = cs.onSurfaceVariant
-                                )
+            /* Each dial detent of travel clicks like a watch. */
+            val listState = rememberLazyListState()
+            val dialTick = rememberHapticTick()
+            Box {
+                LazyColumn(
+                    (if (expand) Modifier.fillMaxHeight() else Modifier.heightIn(max = 420.dp))
+                        .dialTicks(HISTORY_DIAL_DETENT) { dialTick() }
+                        .then(if (s.prefs.edgeBlur) Modifier.edgeFadeMask(HISTORY_EDGE) else Modifier),
+                    state = listState,
+                    contentPadding = PaddingValues(vertical = HISTORY_EDGE),
+                ) {
+                    data.groups.forEach { group ->
+                        if (group.label != null) {
+                            item(key = "h-${group.label}") {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        group.label,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = cs.onSurfaceVariant,
+                                        letterSpacing = 0.3.sp
+                                    )
+                                    Text(
+                                        fmt(group.total, s.cur),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = cs.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
-                    }
-                    items(group.items, key = { "${it.type}-${it.id}" }) { e ->
-                        HistoryRow(
-                            s,
-                            e,
-                            positive,
-                            warning,
-                            onEdit = { onEditEntry(e) },
-                            onDuplicate = { vm.duplicateExpense(e.id) },
-                            onDelete = { vm.removeExpense(e.id) },
-                            onRemoveTopUp = { vm.removeTopUp(e.id) },
-                            onPreviewReceipt = { previewReceipt = e.receipt })
+                        items(group.items, key = { "${it.type}-${it.id}" }) { e ->
+                            HistoryRow(
+                                s,
+                                e,
+                                positive,
+                                warning,
+                                onEdit = { onEditEntry(e) },
+                                onDuplicate = { vm.duplicateExpense(e.id) },
+                                onDelete = { vm.removeExpense(e.id) },
+                                onRemoveTopUp = { vm.removeTopUp(e.id) },
+                                onPreviewReceipt = { previewReceipt = e.receipt })
+                        }
                     }
                 }
             }

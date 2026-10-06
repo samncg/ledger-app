@@ -207,6 +207,7 @@ input[type="number"]{-moz-appearance:textfield}
 }
 .hero-stats{
   display:grid;grid-template-columns:repeat(4,1fr);gap:20px;
+  grid-auto-rows:1fr;
   margin-top:28px;padding-top:24px;border-top:1px solid var(--border);
   position:relative;
 }
@@ -215,12 +216,13 @@ input[type="number"]{-moz-appearance:textfield}
   font-size:10px;color:var(--text-muted);
   text-transform:uppercase;letter-spacing:.1em;
   font-family:var(--font-mono,'JetBrains Mono',monospace);margin-bottom:6px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .hero-stat-value{
   font-size:22px;font-weight:700;
   font-family:var(--font-mono,'JetBrains Mono',monospace);letter-spacing:-.02em;
 }
-.hero-stat-note{font-size:11px;color:var(--text-muted);margin-top:3px}
+.hero-stat-note{font-size:11px;color:var(--text-muted);margin-top:3px;min-height:2.7em}
 @media(max-width:640px){.hero-stats{grid-template-columns:1fr;gap:14px}}
 
 /* Day strip */
@@ -420,6 +422,16 @@ select.input{
 .cat-pill.active .cat-dot{background:var(--bg)!important;box-shadow:0 0 0 2px var(--cat-color) inset}
 .cat-dot{width:8px;height:8px;border-radius:50%;background:var(--cat-color,var(--accent));flex-shrink:0;transition:background .2s}
 
+.cat-glyph-grid{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
+.cat-glyph-swatch{
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  font-size:14px;padding:0;
+  border:1.5px solid var(--border);background:var(--bg);color:var(--text-dim);
+  cursor:pointer;transition:all .18s;font-family:inherit;
+}
+.cat-glyph-swatch:hover{color:var(--text);border-color:var(--border-strong)}
+.cat-glyph-swatch.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+
 /* Tags */
 .tag-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
 .tag-chip{
@@ -525,6 +537,10 @@ select.input{
 .piggy-info{flex:1;min-width:170px}
 .piggy-progress{height:10px;border-radius:999px;background:var(--surface-2);overflow:hidden;border:1px solid var(--border)}
 .piggy-progress-fill{height:100%;border-radius:999px;background:var(--accent);transition:width .4s ease}
+/* Hero budget bar — climbs into its new width when a spend lands, and flashes as it arrives */
+.hero-progress-fill{transition:width .8s cubic-bezier(.16,1,.3,1)}
+.hero-progress-fill.pulse{animation:heroFillPulse .9s var(--ease-out)}
+@keyframes heroFillPulse{from{filter:brightness(2.2)}to{filter:brightness(1)}}
 .piggy-img{width:100%;height:auto;display:block;border-radius:12px;border:1px solid var(--border);max-height:140px;object-fit:cover}
 .piggy-img.default{image-rendering:pixelated;transform:scaleX(-1);max-height:none;object-fit:contain} /* crisp pixels, faces right */
 .piggy-actions{display:flex;gap:8px;flex-wrap:wrap}
@@ -646,6 +662,15 @@ select.input{
 
 .tx-list{display:flex;flex-direction:column}
 .tx-list.scroll{max-height:520px;overflow-y:auto;padding-right:4px}
+/* The list's ends dissolve into the card (Theme → Screen edges turns this off) */
+.tx-scroll-wrap{position:relative}
+.tx-list.tx-edge-mask{padding-top:32px;padding-bottom:32px}
+/* A pure fade, deliberately not a backdrop-filter: a filter here re-samples the scrolling list
+   every frame — through the card's own glass blur, which makes it pricier still — and that was
+   the jank. Dissolving the rows into the surface colour reads stronger anyway, and is free. */
+.tx-edge{position:absolute;left:0;right:0;height:32px;pointer-events:none;z-index:2}
+.tx-edge.top{top:0;background:linear-gradient(to bottom,var(--surface) 0,color-mix(in srgb,var(--surface) 74%,transparent) 40%,transparent 100%)}
+.tx-edge.bottom{bottom:0;background:linear-gradient(to top,var(--surface) 0,color-mix(in srgb,var(--surface) 74%,transparent) 40%,transparent 100%)}
 .tx-group-header{
   font-size:10.5px;color:var(--accent-fg);
   font-family:var(--font-mono,'JetBrains Mono',monospace);letter-spacing:.1em;

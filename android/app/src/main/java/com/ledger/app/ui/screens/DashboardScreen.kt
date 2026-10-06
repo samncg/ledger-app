@@ -1,36 +1,23 @@
 package com.ledger.app.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,39 +26,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.kashif_e.backdrop.backdrops.emptyBackdrop
 import com.kashif_e.backdrop.backdrops.layerBackdrop
+import com.kashif_e.backdrop.backdrops.rememberCombinedBackdrop
 import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
-import com.ledger.app.data.dashboardCardOrder
 import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.BudgetDrawer
 import com.ledger.app.ui.components.ConfirmDialog
-import com.ledger.app.ui.components.CustomizeDrawer
-import com.ledger.app.ui.components.Hero
-import com.ledger.app.ui.components.LiquidGlassNavBar
+import com.ledger.app.ui.components.DrawerScrim
+import com.ledger.app.ui.components.HUB_BUDGET
+import com.ledger.app.ui.components.HUB_TODAY
+import com.ledger.app.ui.components.HUB_SPENDING
+import com.ledger.app.ui.components.HubBottomBar
+import com.ledger.app.ui.components.HubSettingsBubble
+import com.ledger.app.ui.components.HubTabBody
+import com.ledger.app.ui.components.LocalGlassBackdrop
 import com.ledger.app.ui.components.MoneyDrawer
 import com.ledger.app.ui.components.ScreenEdgeBlur
+import com.ledger.app.ui.components.SettingsScreen
 import com.ledger.app.ui.components.ToastOverlay
-import com.ledger.app.ui.components.TravelHero
-import com.ledger.app.ui.components.TravelListCard
+import com.ledger.app.ui.components.hubTopInset
 import com.ledger.app.ui.components.progressiveEdgeBlurSupported
-import com.ledger.app.ui.components.cards.AutoCard
-import com.ledger.app.ui.components.cards.BackupCard
-import com.ledger.app.ui.components.cards.BreakdownCard
-import com.ledger.app.ui.components.cards.InsightsCard
-import com.ledger.app.ui.components.cards.LogCard
-import com.ledger.app.ui.components.cards.PiggyCard
-import com.ledger.app.ui.components.cards.TrendCard
-import com.ledger.app.ui.components.cards.StreakCard
 import com.ledger.app.ui.parseColor
-import com.ledger.app.ui.t
-import com.ledger.app.util.fmt
 
 /* ═══════════════════════════════════════════
-   DASHBOARD — hero + reorderable cards + overlays
+   DASHBOARD — the tabbed hub: Today · Spending · Budget · History,
+   with the Log and Settings bubbles floating over it, plus the overlays.
    ═══════════════════════════════════════════ */
 
 @Composable
@@ -83,16 +65,29 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
     var showBudget by remember { mutableStateOf(false) }
     var showCustomize by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(initialShowLog) }
-    var showHistory by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    /* One list per destination, so switching tabs returns you to where you were rather than
+       to the top. */
+    val todayList = rememberLazyListState()
+    val spendingList = rememberLazyListState()
+    val budgetList = rememberLazyListState()
+    var activeTab by remember { mutableStateOf(HUB_TODAY) }
+    /* True while any screen or drawer is up. The Settings bubble becomes a back arrow and the
+       glass refracts what is actually behind it. */
+    val anyOverlayOpen = showLog || showCustomize || showBudget || showMoney
+    /* Whether the bars (and the cards) are in a liquid-glass mode — the same condition the glass
+       uses to decide whether to run the refraction shader at all. */
+    val pillGlass = s.prefs.glassEnabled || s.prefs.glassScreens
 
-    // System back gesture closes the open overlay instead of the Activity.
-    BackHandler(enabled = showLog || showHistory || showCustomize || showBudget || showMoney) {
-        showLog = false
-        showHistory = false
-        showCustomize = false
-        showBudget = false
-        showMoney = false
+    // Back closes the open screen/drawer; with none open it walks back to Today.
+    BackHandler(enabled = anyOverlayOpen || activeTab != HUB_TODAY) {
+        if (anyOverlayOpen) {
+            showLog = false
+            showCustomize = false
+            showBudget = false
+            showMoney = false
+        } else {
+            activeTab = HUB_TODAY
+        }
     }
 
     /* Keep the trip's exchange rate current. Only affects entries logged from now on. */
@@ -100,190 +95,171 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
         if (s.travelActive && s.travel.rateAuto) vm.refreshTravelRate(auto = true)
     }
 
-    val cardOrder = dashboardCardOrder(s.prefs.cardOrder, s.balancesOn)
-    val cardLabels = mapOf(
-        "breakdown" to t("app.cardLabel.breakdown"),
-        "insights" to t("app.cardLabel.insights"),
-        "trend" to t("app.cardLabel.trend"),
-        "streak" to t("app.cardLabel.streak"),
-        "auto" to t("app.cardLabel.auto"),
-        "piggy" to t("app.cardLabel.piggy"),
-        "backup" to t("app.cardLabel.backup"),
+    /* The pages are captured into this layer so the top/bottom edges can be blurred over them. */
+    val contentBackdrop = rememberLayerBackdrop()
+    /* Everything drawn above the page and below the bar — the Settings and Log screens, the
+       drawers, toasts — is captured here too, so the bar's glass bends whatever it actually
+       covers rather than only the wallpaper. */
+    val overlayBackdrop = rememberLayerBackdrop()
+    val bottomBlur = 72.dp
+    /* The scene behind the bar, in paint order: the wallpaper, then the page, then the overlays. */
+    val sceneBackdrop = rememberCombinedBackdrop(
+        LocalGlassBackdrop.current ?: emptyBackdrop(),
+        contentBackdrop,
+        overlayBackdrop,
     )
 
-    /* The cards are captured into this layer so the top/bottom edges can be blurred over
-       them. The band heights double as the list's content padding, so a resting card sits
-       exactly where the blur has faded out and is therefore never blurred. */
-    val contentBackdrop = rememberLayerBackdrop()
-    val topBlur = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 26.dp
-    val bottomBlur = 140.dp
-
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        /* One full-height page per destination. The pages are full-bleed, so their cards scroll
+           right up under the edge blur instead of being clipped by a fixed header. */
+        Box(
             Modifier
                 .fillMaxSize()
-                // Only capture the cards into a layer where the blur can actually use it.
                 .then(
-                    if (progressiveEdgeBlurSupported) Modifier.layerBackdrop(contentBackdrop)
+                    if (progressiveEdgeBlurSupported && (s.prefs.edgeBlur || pillGlass))
+                        Modifier.layerBackdrop(contentBackdrop)
                     else Modifier
-                ),
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topBlur, bottom = bottomBlur),
+                )
         ) {
-            item(key = "hero") {
-                if (s.travelActive) {
-                    TravelHero(s, onEnd = { vm.endTravel() })
-                } else {
-                    Hero(
-                        s,
-                        { fmt(it, s.cur) },
-                        onMoveMoney = { moneyMode = "budget"; showMoney = true })
-                }
-            }
-            if (s.travelActive) {
-                /* Travel mode swaps the whole dashboard for the trip's own page. */
-                item(key = "travel-log") { LogCard(vm, s) }
-                item(key = "travel-list") { TravelListCard(vm, s) }
-            } else {
-                items(count = cardOrder.size, key = { cardOrder[it] }) { index ->
-                    val id = cardOrder[index]
-                    Column {
-                        /* reorder bar */
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                cardLabels[id] ?: id,
-                                fontSize = 10.sp,
-                                color = cs.onSurfaceVariant,
-                                letterSpacing = 0.5.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Row {
-                                IconButton(
-                                    onClick = { vm.moveCard(id, -1) },
-                                    enabled = index > 0,
-                                    modifier = Modifier.height(26.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.KeyboardArrowUp,
-                                        t("app.moveUp"),
-                                        Modifier.size(16.dp),
-                                        tint = if (index > 0) cs.onSurfaceVariant else cs.outlineVariant
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { vm.moveCard(id, 1) },
-                                    enabled = index < cardOrder.size - 1,
-                                    modifier = Modifier.height(26.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.KeyboardArrowDown,
-                                        t("app.moveDown"),
-                                        Modifier.size(16.dp),
-                                        tint = if (index < cardOrder.size - 1) cs.onSurfaceVariant else cs.outlineVariant
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(2.dp))
-                        when (id) {
-                            "breakdown" -> BreakdownCard(vm, s)
-                            "insights" -> InsightsCard(vm, s)
-                            "streak" -> StreakCard(s)
-                            "trend" -> TrendCard(vm, s)
-                            "auto" -> AutoCard(vm, s)
-                            "piggy" -> PiggyCard(vm, s)
-                            "backup" -> BackupCard(
-                                vm,
-                                s,
-                                onEditBudget = { showBudget = true },
-                                onMoveMoney = { moneyMode = "budget"; showMoney = true })
-                        }
-                    }
-                }
+            AnimatedContent(
+                targetState = activeTab,
+                transitionSpec = {
+                    /* Slide in the direction of travel while fading across — no bounce. */
+                    val dir = if (targetState > initialState) 1 else -1
+                    (slideInHorizontally { full -> dir * full / 5 } + fadeIn(tween(200))) togetherWith
+                            (slideOutHorizontally { full -> -dir * full / 5 } + fadeOut(tween(160)))
+                },
+                label = "hub-page",
+            ) { tab ->
+                HubTabBody(
+                    tab = tab,
+                    vm = vm,
+                    s = s,
+                    listState = when (tab) {
+                        HUB_SPENDING -> spendingList
+                        HUB_BUDGET -> budgetList
+                        else -> todayList
+                    },
+                    progressFrozen = anyOverlayOpen,
+                    onMoveMoney = { moneyMode = "budget"; showMoney = true },
+                    onEditBudget = { showBudget = true },
+                    onEditEntry = { entry ->
+                        vm.startEdit(entry)
+                        showLog = true
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
 
-        /* ── Progressive blur over the card edges — after the list, before the pill ──
+        /* ── Progressive blur over the page edges — after the page, before the bar ──
            Switched off entirely from Theme → Glass for users who prefer a clean edge. */
         if (s.prefs.edgeBlur) {
-            ScreenEdgeBlur(backdrop = contentBackdrop, topHeight = topBlur, bottomHeight = bottomBlur)
-        }
-
-        /* ── In-window overlays (drawn before the pill so the pill always floats above) ── */
-        ToastOverlay(
-            toast = vm.toast,
-            dotColor = when (vm.toast?.type) {
-                "success" -> parseColor(s.theme.positive) ?: cs.primary
-                "error" -> parseColor(s.theme.negative) ?: cs.error
-                else -> parseColor(s.theme.accent) ?: cs.primary
-            },
-            onDismiss = vm::dismissToast,
-        )
-
-        ConfirmDialog(vm.confirm)
-
-        AnimatedVisibility(
-            visible = showMoney,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-        ) {
-            MoneyDrawer(vm, s, moneyMode, { moneyMode = it }, onClose = { showMoney = false })
-        }
-        AnimatedVisibility(
-            visible = showBudget,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-        ) {
-            BudgetDrawer(vm, s, onClose = { showBudget = false })
-        }
-        AnimatedVisibility(
-            visible = showCustomize,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-        ) {
-            CustomizeDrawer(vm, s, onClose = { showCustomize = false })
-        }
-        AnimatedVisibility(
-            visible = showLog,
-            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-        ) {
-            LogScreen(vm, s, onClose = { showLog = false })
-        }
-        AnimatedVisibility(
-            visible = showHistory,
-            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-        ) {
-            HistoryScreen(
-                vm, s,
-                onClose = { showHistory = false },
-                onEditEntry = { entry ->
-                    vm.startEdit(entry)
-                    showHistory = false
-                    showLog = true
-                },
+            /* The bottom band is 72dp — the space the floating bar sits over. The top band is the
+               status-bar inset plus the page's own clearance, since it also serves as that page's
+               top padding. Keeping both short leaves a minimum of the page under a blur that trails
+               the sharp content by a frame, which is what reads as a flicker. */
+            ScreenEdgeBlur(
+                backdrop = contentBackdrop,
+                topHeight = hubTopInset(),
+                bottomHeight = bottomBlur,
             )
         }
 
-        /* Bottom liquid-glass nav pill — floats above every overlay and morphs into a close button */
-        LiquidGlassNavBar(
-            onLogSpend = { showLog = true },
-            onOpenHistory = { showHistory = true },
-            onOpenDrawer = { showCustomize = true },
-            onClose = {
-                showLog = false
-                showHistory = false
-                showCustomize = false
-                showBudget = false
-                showMoney = false
+        /* ── In-window overlays (drawn before the bar so the bar always floats above) ──
+           Captured as one layer, so the bar's glass can refract the Settings and Log screens
+           themselves and not just the page behind them. */
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (progressiveEdgeBlurSupported) Modifier.layerBackdrop(overlayBackdrop)
+                    else Modifier
+                )
+        ) {
+            ToastOverlay(
+                toast = vm.toast,
+                dotColor = when (vm.toast?.type) {
+                    "success" -> parseColor(s.theme.positive) ?: cs.primary
+                    "error" -> parseColor(s.theme.negative) ?: cs.error
+                    else -> parseColor(s.theme.accent) ?: cs.primary
+                },
+                onDismiss = vm::dismissToast,
+            )
+
+            ConfirmDialog(vm.confirm)
+
+            /* The dimming backdrop fades in place; only the sheet slides, so the scrim never
+               sweeps up the screen as a hard-edged black band behind it. */
+            AnimatedVisibility(visible = showMoney, enter = fadeIn(), exit = fadeOut()) {
+                DrawerScrim { showMoney = false }
+            }
+            AnimatedVisibility(
+                visible = showMoney,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            ) {
+                MoneyDrawer(vm, s, moneyMode, { moneyMode = it }, onClose = { showMoney = false })
+            }
+            AnimatedVisibility(visible = showBudget, enter = fadeIn(), exit = fadeOut()) {
+                DrawerScrim { showBudget = false }
+            }
+            AnimatedVisibility(
+                visible = showBudget,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            ) {
+                BudgetDrawer(vm, s, onClose = { showBudget = false })
+            }
+            AnimatedVisibility(
+                visible = showCustomize,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                SettingsScreen(vm, s)
+            }
+            AnimatedVisibility(
+                visible = showLog,
+                enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            ) {
+                LogScreen(vm, s, onClose = { showLog = false })
+            }
+        }   /* end of the captured overlay layer */
+
+        /* Bottom bar, drawn above every overlay: a four-tab pill with the Log bubble beside it,
+           plus a Settings bubble floating in a top corner. It samples [sceneBackdrop], which
+           carries the overlays too, so the glass bends whatever it actually covers. */
+        val closeAll = {
+            showLog = false
+            showCustomize = false
+            showBudget = false
+            showMoney = false
+        }
+        val leftHanded = s.prefs.leftHanded
+        HubSettingsBubble(
+            isBack = anyOverlayOpen,
+            onClick = { if (anyOverlayOpen) closeAll() else showCustomize = true },
+            sceneBackdrop = sceneBackdrop,
+            modifier = Modifier
+                /* Left-handed mode swaps the corner the bubble floats in. */
+                .align(if (leftHanded) Alignment.TopStart else Alignment.TopEnd)
+                .statusBarsPadding()
+                .then(
+                    if (leftHanded) Modifier.padding(start = 16.dp, top = 10.dp)
+                    else Modifier.padding(end = 16.dp, top = 10.dp)
+                ),
+        )
+        HubBottomBar(
+            activeTab = activeTab,
+            onSelectTab = { tab ->
+                /* Switching destination leaves any open screen or drawer behind. */
+                closeAll()
+                activeTab = tab
             },
-            isOverlayOpen = showLog || showHistory || showCustomize || showBudget || showMoney,
+            onLogSpend = { showLog = true },
+            leftHanded = leftHanded,
+            sceneBackdrop = sceneBackdrop,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()

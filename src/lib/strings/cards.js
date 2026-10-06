@@ -15,6 +15,7 @@ export default {
   'card.breakdown.to': 'To',
   'card.breakdown.totalSpent': 'Total spent',
   'card.breakdown.pctAllowance': '% of allowance',
+  'card.breakdown.saved': 'Saved',
   'card.breakdown.vs': 'vs {amount} · {days}d',
   'card.breakdown.avgPerDay': 'Avg spending/day',
   'card.breakdown.top': 'Top',

@@ -82,7 +82,11 @@ class Repository(private val context: Context) {
 
         val piggiesList: List<Piggy>? = read("ledger-piggies") { json.decodeFromString(it) }
         val oldPiggy: Piggy? = read("ledger-piggy") { json.decodeFromString(it) }
-        val resolvedPiggies = piggiesList ?: oldPiggy?.let { listOf(it) } ?: listOf(Piggy())
+        /* A stored `[]` decodes to a NON-null empty list, so it slips past the `?:` below and
+           leaves consumers calling .first() on nothing (crashing at startup). There is always at
+           least one piggy, so an empty list is normalised back to the default. */
+        val resolvedPiggies =
+            (piggiesList ?: oldPiggy?.let { listOf(it) } ?: listOf(Piggy())).ifEmpty { listOf(Piggy()) }
         return StoredData(
             theme = read("ledger-theme") { json.decodeFromString(it) },
             savedTheme = read("ledger-theme-saved") { json.decodeFromString(it) },
@@ -113,6 +117,7 @@ class Repository(private val context: Context) {
         write("ledger-piggies", v)
         v.firstOrNull()?.let { write("ledger-piggy", it) }
     }
+
     suspend fun savePiggy(v: Piggy) = savePiggies(listOf(v))
     suspend fun saveRecurring(v: List<Rule>) = write("ledger-recurring", v)
 

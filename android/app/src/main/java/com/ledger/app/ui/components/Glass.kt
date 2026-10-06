@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,11 +44,14 @@ data class GlassStyle(
     val enabled: Boolean = false,
     val screensGlass: Boolean = false,
     val insideGlass: Boolean = false,
-    val blur: Int = 8,
-    val opacity: Int = 76,
-    val refraction: Int = 24,
-    val refractionHeight: Int = 12,
-    val chromaticAberration: Float = 0f,
+    val blur: Int = 0,
+    val barBlur: Int = 0,    // blur for the non-card UI glass (bottom bar, its bubbles)
+    val barGlass: Boolean = true, // liquid glass for the bottom bar and its bubbles
+    val opacity: Int = 100,
+    val barOpacity: Int = 0, // how solid that non-card glass is, set apart from the cards
+    val refraction: Int = 14,
+    val refractionHeight: Int = 14,
+    val chromaticAberration: Float = 0.5f,
     val innerOpacity: Int = 40, // fill opacity for panels nested inside a glass card
 )
 
@@ -88,6 +92,13 @@ fun GlassSurface(
     val refractionHeight = style.refractionHeight.coerceIn(0, 40).toFloat()
     val chromatic = style.chromaticAberration.coerceIn(0f, 1f)
 
+    /* The backdrop node's update path swaps its lambdas without invalidating its draw, so a
+       theme-only change (new surface tint, new wallpaper behind the glass) left the old frame
+       up until something else happened to redraw it — the card stayed on the previous theme.
+       Reading the tint through state inside the draw lambda lets Compose's draw-phase
+       observation invalidate the glass the moment the theme changes. */
+    val tint = rememberUpdatedState(baseColor)
+
     val glassModifier = if (backdrop != null && style.enabled) {
         Modifier
             .drawBackdrop(
@@ -103,13 +114,19 @@ fun GlassSurface(
                         chromaticAberration = chromatic > 0f
                     )
                 },
-                highlight = { Highlight.Default },
+                /* A faint, soft rim rather than a drawn border. The highlight shader projects the
+                   shape's own distance-field gradient onto a light angle, so the edge catches the
+                   light unevenly instead of lighting up as a uniform line — the refracting brim
+                   Apple's Liquid Glass has — and it is composited additively through a blur at a
+                   low alpha, so it reads as glass catching light rather than as a stroke. */
+                highlight = {
+                    Highlight.Default.copy(width = 0.75.dp, blurRadius = 3.dp, alpha = 0.30f)
+                },
                 shadow = { Shadow(radius = 6.dp, color = Color.Black.copy(alpha = 0.16f)) },
                 onDrawSurface = {
-                    drawRect(baseColor.copy(alpha = alpha * 0.35f))
+                    drawRect(tint.value.copy(alpha = alpha * 0.35f))
                 }
             )
-            .border(1.dp, accentColor.copy(alpha = 0.28f), shape)
             .clip(shape)
     } else {
         Modifier
@@ -141,6 +158,9 @@ fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
         val blurRadius = glass.blur.coerceIn(4, 24)
         // Light, translucent tint — keeps the screen airy instead of dark.
         val tintAlpha = 0.12f + (glass.opacity.coerceIn(20, 100) / 100f) * 0.22f
+        /* Same as GlassSurface: read the theme tint through state so the draw re-runs on a
+           theme toggle instead of keeping the previous theme's wash. */
+        val bgTint = rememberUpdatedState(cs.background)
         Box(
             Modifier
                 .fillMaxSize()
@@ -152,7 +172,7 @@ fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
                     },
                     onDrawSurface = {
                         drawRect(Color.White.copy(alpha = 0.10f))
-                        drawRect(cs.background.copy(alpha = tintAlpha))
+                        drawRect(bgTint.value.copy(alpha = tintAlpha))
                     }
                 ),
         ) {

@@ -241,6 +241,9 @@ data class HistoryData(
 fun entryCats(e: HistoryEntry): List<String> =
     if (e.categories.isNotEmpty()) e.categories else e.category?.let { listOf(it) } ?: emptyList()
 
+fun entryCats(e: Expense): List<String> =
+    if (e.categories.isNotEmpty()) e.categories else e.category?.let { listOf(it) } ?: emptyList()
+
 /* ═══════════════════════════════════════════
    VIEW MODEL — state machine ported from the
    web app's App() component
@@ -325,6 +328,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         if (safeSettings != null && safeSettings != rawSettings) {
             viewModelScope.launch { repo.saveSettings(safeSettings) }
         }
+        /* Always non-empty: the repository folds the legacy single `piggy` key in and normalises
+           an empty list back to the default, so the .first() calls below are safe. */
+        val piggies = (d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy())).ifEmpty { listOf(Piggy()) }
+
         var s = LedgerState(
             ready = true,
             theme = d.theme ?: DEFAULT_THEME,
@@ -336,9 +343,9 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
             catBudgets = d.catBudgets ?: emptyMap(),
             topUps = d.topUps ?: emptyList(),
             balance = d.balance ?: Balance(),
-            piggy = (d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy())).first(),
-            piggies = d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy()),
-            activePiggyId = (d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy())).first().id,
+            piggy = piggies.first(),
+            piggies = piggies,
+            activePiggyId = piggies.first().id,
             recurring = d.recurring ?: emptyList(),
             dataCorrupt = d.corruptKeys.isNotEmpty(),
         )
@@ -450,23 +457,37 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         val todaySpent = spentByDay[today] ?: 0.0
         val todayRemaining = dailyBudget - todaySpent
 
-        /* Bank balance = starting money, plus the leftover allowance banked at the end
-           of each day, minus money moved over to the monthly budget.
-           Leftovers use the CURRENT net dailyBudget (monthlyBudget + net topUps), so it
-           always agrees with the "Daily allowance" shown — no per-day topUp inflation. */
-        val bankedSoFar = if (s.settings == null) 0.0 else {
+        /* Bank balance = starting money, plus each day's leftover allowance banked back at the
+           end of the day, minus each day's allowance taken out at the start of it, minus money
+           moved over to the monthly budget. Withdrawing the allowance at the start of the day and
+           banking the leftover back at the end leaves only what was actually spent gone, so the
+           balance tracks the bank account instead of gaining the budget out of nowhere. The window
+           runs from the earliest logged day (or the current period's start if that is older)
+           through today, so a spend dated inside a past month moves the balance like any other —
+           and the balance no longer loses its history when the period rolls over. Leftovers use
+           the CURRENT net dailyBudget (monthlyBudget + net topUps), so it always agrees with the
+           "Daily allowance" shown — no per-day topUp inflation. */
+        val (bankedSoFar, daysCovered) = if (s.settings == null) 0.0 to 0 else {
+            val earliest = s.expenses.minOfOrNull { it.date }
+            val anchor = if (earliest != null && earliest < s.settings.startDate) earliest
+            else s.settings.startDate
             var banked = 0.0
-            for (c in dayCells) {
-                if (c.isFuture) break
-                val left = dailyBudget - c.spent
+            var days = 0
+            var d = parseDate(anchor)
+            val end = parseDate(today)
+            while (!d.isAfter(end)) {
+                val left = dailyBudget - (spentByDay[d.toString()] ?: 0.0)
                 // Overspends either drain the bank balance (bank the negative leftover)
                 // or come out of the total budget (bank only the positive leftover),
                 // controlled by prefs.overspendFromBalance.
                 banked += if (s.prefs.overspendFromBalance) left else max(0.0, left)
+                days++
+                d = d.plusDays(1)
             }
-            banked
+            banked to days
         }
-        val bankBalance = s.balance.start - topUpTotal + bankedSoFar
+        val bankBalance =
+            s.balance.start - daysCovered * dailyBudget - topUpTotal + bankedSoFar
         val todaySaved = max(0.0, todayRemaining)
         val activePiggy = s.piggies.find { it.id == s.activePiggyId } ?: s.piggies.firstOrNull() ?: Piggy()
         val piggyPct = if (activePiggy.target > 0) min(100.0, activePiggy.saved / activePiggy.target * 100) else 0.0
@@ -684,73 +705,85 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         sort: String,
         group: Boolean,
     ): HistoryData {
-        var list: List<HistoryEntry> =
-            s.expenses.map {
+        /* One pass over the ledger, filtering and totalling together. The previous shape made
+           ~8 full passes (map + four filters + two sums + a per-group sum), which is 20-30 ms of
+           main-thread work on a few hundred entries — enough to drop frames every time this card
+           recomposes: opening History, logging a spend, or changing a filter. */
+        val catFilter = if (filterCats.isNotEmpty()) filterCats.toHashSet() else null
+        val tagFilter = if (filterTags.isNotEmpty()) filterTags.toHashSet() else null
+        val q = if (search.isNotBlank()) search.trim().lowercase() else null
+        val hasFrom = dateFrom.isNotEmpty()
+        val hasTo = dateTo.isNotEmpty()
+
+        val list = ArrayList<HistoryEntry>(s.expenses.size + s.topUps.size)
+        var spentTotal = 0.0
+        var toppedTotal = 0.0
+
+        for (e in s.expenses) {
+            if (catFilter != null && entryCats(e).none { it in catFilter }) continue
+            if (tagFilter != null && e.tags.none { it in tagFilter }) continue
+            if (q != null &&
+                !(e.note.lowercase().contains(q) ||
+                        entryCats(e).any { it.lowercase().contains(q) } ||
+                        e.tags.any { it.lowercase().contains(q) })
+            ) {
+                continue
+            }
+            if (hasFrom && e.date < dateFrom) continue
+            if (hasTo && e.date > dateTo) continue
+            list.add(
                 HistoryEntry(
-                    "expense",
-                    it.id,
-                    it.date,
-                    it.amount,
-                    it.note,
-                    it.categories,
-                    it.category,
-                    it.receipt,
-                    it.tags,
-                    it.currency,
-                    it.foreignAmount,
+                    "expense", e.id, e.date, e.amount, e.note, e.categories, e.category,
+                    e.receipt, e.tags, e.currency, e.foreignAmount,
                 )
-            } +
-                    s.topUps.map { HistoryEntry("topup", it.id, it.date, it.amount, it.note) }
-        if (filterCats.isNotEmpty()) {
-            list = list.filter { it.type == "expense" && entryCats(it).any { c -> filterCats.contains(c) } }
+            )
+            spentTotal += e.amount
         }
-        if (filterTags.isNotEmpty()) {
-            list = list.filter { it.type == "expense" && it.tags.any { tg -> filterTags.contains(tg) } }
-        }
-        if (search.isNotBlank()) {
-            val q = search.trim().lowercase()
-            list = list.filter { e ->
-                if (e.type == "topup") {
-                    e.note.lowercase().contains(q) || "move to budget".contains(q) ||
-                            "top up".contains(q) || "return to balance".contains(q)
-                } else {
-                    e.note.lowercase().contains(q) || entryCats(e).any { it.lowercase().contains(q) } ||
-                            e.tags.any { it.lowercase().contains(q) }
+
+        /* A category or tag filter hides transfers: they carry neither. */
+        if (catFilter == null && tagFilter == null) {
+            for (t in s.topUps) {
+                if (q != null &&
+                    !(t.note.lowercase().contains(q) || "move to budget".contains(q) ||
+                            "top up".contains(q) || "return to balance".contains(q))
+                ) {
+                    continue
                 }
+                if (hasFrom && t.date < dateFrom) continue
+                if (hasTo && t.date > dateTo) continue
+                list.add(HistoryEntry("topup", t.id, t.date, t.amount, t.note))
+                toppedTotal += t.amount
             }
         }
-        if (dateFrom.isNotEmpty()) list = list.filter { it.date >= dateFrom }
-        if (dateTo.isNotEmpty()) list = list.filter { it.date <= dateTo }
-        list = when (sort) {
+
+        val sorted = when (sort) {
             "date-asc" -> list.sortedWith(compareBy({ it.date }, { it.id }))
             "amount-desc" -> list.sortedByDescending { it.amount }
             "amount-asc" -> list.sortedBy { it.amount }
             else -> list.sortedWith(compareByDescending<HistoryEntry> { it.date }.thenByDescending { it.id })
         }
-        val spentTotal = list.filter { it.type != "topup" }.sumOf { it.amount }
-        val toppedTotal = list.filter { it.type == "topup" }.sumOf { it.amount }
         val activeFilterCount =
-            (if (search.isNotBlank()) 1 else 0) + (if (dateFrom.isNotEmpty() || dateTo.isNotEmpty()) 1 else 0) +
+            (if (search.isNotBlank()) 1 else 0) + (if (hasFrom || hasTo) 1 else 0) +
                     (if (sort != "date-desc") 1 else 0) + filterCats.size + filterTags.size
 
         val groups: List<HistoryGroup> = if (!group || sort.startsWith("amount")) {
-            listOf(HistoryGroup(null, list, 0.0))
+            listOf(HistoryGroup(null, sorted, 0.0))
         } else {
-            val order = mutableListOf<String>()
-            val byLabel = linkedMapOf<String, MutableList<HistoryEntry>>()
-            for (e in list) {
+            /* Preserve first-seen order; a HashMap alone would reshuffle the sections. */
+            val order = ArrayList<String>()
+            val byLabel = HashMap<String, MutableList<HistoryEntry>>()
+            for (e in sorted) {
                 val label = groupLabel(e.date, s.today)
-                if (!byLabel.containsKey(label)) {
-                    byLabel[label] = mutableListOf(); order.add(label)
-                }
-                byLabel.getValue(label).add(e)
+                byLabel.getOrPut(label) { order.add(label); ArrayList() }.add(e)
             }
             order.map { label ->
                 val items = byLabel.getValue(label)
-                HistoryGroup(label, items, items.filter { it.type != "topup" }.sumOf { it.amount })
+                var total = 0.0
+                for (e in items) if (e.type != "topup") total += e.amount
+                HistoryGroup(label, items, total)
             }
         }
-        return HistoryData(list, spentTotal, toppedTotal, activeFilterCount, groups)
+        return HistoryData(sorted, spentTotal, toppedTotal, activeFilterCount, groups)
     }
 
     /* ─── Automations (recurring entries) ─── */
@@ -903,7 +936,8 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         var bal: Double? = null
         if (s.balancesOn) {
             bal = if (balanceStr.isBlank()) null else balanceStr.toDoubleOrNull()
-            if (bal != null && (bal.isNaN() || bal < 0)) {
+            /* A negative balance is legitimate — overspends drain it — so only junk is rejected. */
+            if (bal != null && !bal.isFinite()) {
                 showToast(t("toast.invalidBalance"), "error"); return
             }
         }
@@ -1422,38 +1456,6 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         viewModelScope.launch { repo.savePrefs(next) }
     }
 
-    /* ─── Reorderable cards ─── */
-
-    private fun cardOrderBase(s: LedgerState): List<String> =
-        com.ledger.app.data.mergeCardOrder(s.prefs.cardOrder)
-
-    private fun cardOrderOf(s: LedgerState): List<String> =
-        com.ledger.app.data.dashboardCardOrder(s.prefs.cardOrder, s.balancesOn)
-
-    fun moveCard(id: String, dir: Int) {
-        val s = _state.value
-        // Index within the *visible* order the UI renders (hidden log/history cards are
-        // filtered out), then swap the two cards' positions in the full persisted list
-        // so hidden cards keep their slots and the move is never a no-op.
-        val visible = cardOrderOf(s)
-        val idx = visible.indexOf(id)
-        if (idx < 0) return
-        val swapWith = idx + dir
-        if (swapWith < 0 || swapWith >= visible.size) return
-        val other = visible[swapWith]
-        val full = cardOrderBase(s).toMutableList()
-        val i = full.indexOf(id)
-        val j = full.indexOf(other)
-        if (i < 0 || j < 0) return
-        val tmp = full[i]; full[i] = full[j]; full[j] = tmp
-        updatePrefs { it.copy(cardOrder = full) }
-    }
-
-    fun resetCardOrder() {
-        updatePrefs { it.copy(cardOrder = com.ledger.app.data.defaultCardOrder) }
-        showToast(t("toast.cardOrderReset"), "success")
-    }
-
     /* ─── Wallpaper & Notifications ─── */
 
     fun setWallpaperFromUri(context: android.content.Context, uri: android.net.Uri) {
@@ -1481,6 +1483,10 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 showToast(t("toast.wallpaperSetFailed"), "error")
             }
         }
+    }
+
+    fun setWallpaperPreset(mode: String) {
+        updatePrefs { it.copy(wallpaper = mode) }
     }
 
     fun clearWallpaper(context: android.content.Context) {
@@ -1674,8 +1680,16 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         updatePrefs { it.copy(glassBlur = blur.coerceIn(0, 24)) }
     }
 
+    fun updateGlassBarBlur(blur: Int) {
+        updatePrefs { it.copy(glassBarBlur = blur.coerceIn(0, 24)) }
+    }
+
     fun updateGlassOpacity(opacity: Int) {
         updatePrefs { it.copy(glassOpacity = opacity.coerceIn(20, 100)) }
+    }
+
+    fun updateGlassBarOpacity(opacity: Int) {
+        updatePrefs { it.copy(glassBarOpacity = opacity.coerceIn(0, 100)) }
     }
 
     fun updateGlassInnerOpacity(opacity: Int) {
@@ -1834,24 +1848,63 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
                 if (p != null) {
                     runCatching {
                         prefs = prefs.copy(
-                            currency = el["currency"]?.jsonPrimitive?.contentOrNull ?: prefs.currency,
-                            compact = el["compact"]?.jsonPrimitive?.booleanOrNull ?: prefs.compact,
-                            pieThickness = el["pieThickness"]?.jsonPrimitive?.contentOrNull?.toFloatOrNull()
-                                ?: prefs.pieThickness,
-                            pieGap = el["pieGap"]?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: prefs.pieGap,
-                            groupHistory = el["groupHistory"]?.jsonPrimitive?.booleanOrNull ?: prefs.groupHistory,
-                            trendStyle = el["trendStyle"]?.jsonPrimitive?.contentOrNull ?: prefs.trendStyle,
-                            // Only overwrite map/list prefs when the backup actually carries
-                            // the key, so an older/partial backup can't reset custom values.
+                            /* Every key the backup actually carries wins; keys it does not carry
+                               keep the current value, so an older or partial backup (or one from
+                               before a setting existed) can't reset anything. A full backup
+                               restores the whole of Prefs — the previous version copied only
+                               twelve fields, silently dropping language, travel, streaks and
+                               every appearance setting on import. */
+                            currency = if (el.containsKey("currency")) p.currency else prefs.currency,
+                            compact = if (el.containsKey("compact")) p.compact else prefs.compact,
+                            pieThickness = if (el.containsKey("pieThickness")) p.pieThickness else prefs.pieThickness,
+                            pieGap = if (el.containsKey("pieGap")) p.pieGap else prefs.pieGap,
+                            groupHistory = if (el.containsKey("groupHistory")) p.groupHistory else prefs.groupHistory,
+                            trendStyle = if (el.containsKey("trendStyle")) p.trendStyle else prefs.trendStyle,
                             heatColors = if (el.containsKey("heatColors")) p.heatColors else prefs.heatColors,
-                            font = el["font"]?.jsonPrimitive?.contentOrNull ?: prefs.font,
+                            font = if (el.containsKey("font")) p.font else prefs.font,
                             cardOrder = if (el.containsKey("cardOrder") && p.cardOrder.isNotEmpty())
                                 p.cardOrder else prefs.cardOrder,
-                            balancesEnabled = el["balancesEnabled"]?.jsonPrimitive?.booleanOrNull
-                                ?: prefs.balancesEnabled,
-                            overspendFromBalance = el["overspendFromBalance"]?.jsonPrimitive?.booleanOrNull
-                                ?: prefs.overspendFromBalance,
-                            heroMode = el["heroMode"]?.jsonPrimitive?.contentOrNull ?: prefs.heroMode,
+                            balancesEnabled = if (el.containsKey("balancesEnabled")) p.balancesEnabled
+                            else prefs.balancesEnabled,
+                            overspendFromBalance = if (el.containsKey("overspendFromBalance"))
+                                p.overspendFromBalance else prefs.overspendFromBalance,
+                            heroMode = if (el.containsKey("heroMode")) p.heroMode else prefs.heroMode,
+                            wallpaper = if (el.containsKey("wallpaper")) p.wallpaper else prefs.wallpaper,
+                            wallpaperDim = if (el.containsKey("wallpaperDim")) p.wallpaperDim else prefs.wallpaperDim,
+                            wallBlur = if (el.containsKey("wallBlur")) p.wallBlur else prefs.wallBlur,
+                            notificationsEnabled = if (el.containsKey("notificationsEnabled"))
+                                p.notificationsEnabled else prefs.notificationsEnabled,
+                            reminderHour = if (el.containsKey("reminderHour")) p.reminderHour else prefs.reminderHour,
+                            reminderMinute = if (el.containsKey("reminderMinute")) p.reminderMinute
+                            else prefs.reminderMinute,
+                            budgetAlertsEnabled = if (el.containsKey("budgetAlertsEnabled"))
+                                p.budgetAlertsEnabled else prefs.budgetAlertsEnabled,
+                            appLockEnabled = if (el.containsKey("appLockEnabled")) p.appLockEnabled
+                            else prefs.appLockEnabled,
+                            glassEnabled = if (el.containsKey("glassEnabled")) p.glassEnabled else prefs.glassEnabled,
+                            glassScreens = if (el.containsKey("glassScreens")) p.glassScreens else prefs.glassScreens,
+                            glassScreensInside = if (el.containsKey("glassScreensInside"))
+                                p.glassScreensInside else prefs.glassScreensInside,
+                            glassBlur = if (el.containsKey("glassBlur")) p.glassBlur else prefs.glassBlur,
+                            glassBarBlur = if (el.containsKey("glassBarBlur")) p.glassBarBlur else prefs.glassBarBlur,
+                            glassOpacity = if (el.containsKey("glassOpacity")) p.glassOpacity else prefs.glassOpacity,
+                            glassBarOpacity = if (el.containsKey("glassBarOpacity")) p.glassBarOpacity
+                            else prefs.glassBarOpacity,
+                            glassBar = if (el.containsKey("glassBar")) p.glassBar else prefs.glassBar,
+                            leftHanded = if (el.containsKey("leftHanded")) p.leftHanded else prefs.leftHanded,
+                            glassRefraction = if (el.containsKey("glassRefraction")) p.glassRefraction
+                            else prefs.glassRefraction,
+                            glassRefractionHeight = if (el.containsKey("glassRefractionHeight"))
+                                p.glassRefractionHeight else prefs.glassRefractionHeight,
+                            glassChromaticAmount = if (el.containsKey("glassChromaticAmount"))
+                                p.glassChromaticAmount else prefs.glassChromaticAmount,
+                            glassInnerOpacity = if (el.containsKey("glassInnerOpacity")) p.glassInnerOpacity
+                            else prefs.glassInnerOpacity,
+                            streakGrace = if (el.containsKey("streakGrace")) p.streakGrace else prefs.streakGrace,
+                            edgeBlur = if (el.containsKey("edgeBlur")) p.edgeBlur else prefs.edgeBlur,
+                            lang = if (el.containsKey("lang")) p.lang else prefs.lang,
+                            widgetDark = if (el.containsKey("widgetDark")) p.widgetDark else prefs.widgetDark,
+                            travel = if (el.containsKey("travel")) p.travel else prefs.travel,
                         )
                     }
                 }

@@ -175,6 +175,7 @@ export default {
   'card.breakdown.to': 'ถึง',
   'card.breakdown.totalSpent': 'ใช้จ่ายรวม',
   'card.breakdown.pctAllowance': '% ของวงเงิน',
+  'card.breakdown.saved': 'ประหยัด',
   'card.breakdown.vs': 'เทียบ {amount} · {days} วัน',
   'card.breakdown.avgPerDay': 'ใช้จ่ายเฉลี่ย/วัน',
   'card.breakdown.top': 'สูงสุด',
@@ -377,6 +378,7 @@ export default {
   'drawer.cats.title': 'หมวดหมู่ของคุณ',
   'drawer.cats.add': 'เพิ่มหมวดหมู่',
   'drawer.cats.namePlaceholder': 'ชื่อ (เช่น สุขภาพ)',
+  'drawer.cats.symbols': 'สัญลักษณ์',
   'drawer.cats.desc': 'ใช้สัญลักษณ์สั้นๆ (◇ ★ ♥ ● ▲ ◐) เป็นไอคอน',
 
   'drawer.prefs.languageDesc': 'เมนูและการตั้งค่าถูกแปลแล้ว บางข้อความยาวๆ ยังเป็นภาษาอังกฤษในตอนนี้',

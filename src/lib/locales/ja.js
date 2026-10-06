@@ -175,6 +175,7 @@ export default {
   'card.breakdown.to': '終了',
   'card.breakdown.totalSpent': '支出合計',
   'card.breakdown.pctAllowance': '許容額の%',
+  'card.breakdown.saved': '貯蓄',
   'card.breakdown.vs': '{amount} 比 · {days}日',
   'card.breakdown.avgPerDay': '1日あたりの平均支出',
   'card.breakdown.top': 'トップ',
@@ -377,6 +378,7 @@ export default {
   'drawer.cats.title': 'カテゴリ',
   'drawer.cats.add': 'カテゴリを追加',
   'drawer.cats.namePlaceholder': '名前（例：健康）',
+  'drawer.cats.symbols': '記号',
   'drawer.cats.desc': 'アイコンには短い記号（◇ ★ ♥ ● ▲ ◐）を使えます。',
 
   'drawer.prefs.languageDesc': 'メニューと設定は翻訳されます。一部の長い文章は現在も英語のままです。',

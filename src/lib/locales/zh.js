@@ -175,6 +175,7 @@ export default {
   'card.breakdown.to': '至',
   'card.breakdown.totalSpent': '总支出',
   'card.breakdown.pctAllowance': '占额度',
+  'card.breakdown.saved': '节省',
   'card.breakdown.vs': '对比 {amount} · {days}天',
   'card.breakdown.avgPerDay': '日均支出',
   'card.breakdown.top': '最高',
@@ -377,6 +378,7 @@ export default {
   'drawer.cats.title': '你的分类',
   'drawer.cats.add': '添加分类',
   'drawer.cats.namePlaceholder': '名称（例如：健康）',
+  'drawer.cats.symbols': '符号',
   'drawer.cats.desc': '使用简短符号（◇ ★ ♥ ● ▲ ◐）作为图标。',
 
   'drawer.prefs.languageDesc': '菜单和设置已翻译。部分较长段落暂时仍为英文。',

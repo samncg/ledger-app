@@ -55,7 +55,9 @@ fun AutoCard(vm: LedgerViewModel, s: LedgerState) {
     val cs = MaterialTheme.colorScheme
     var autoType by remember { mutableStateOf("expense") }
     var autoAmount by remember { mutableStateOf("") }
-    var autoCat by remember { mutableStateOf("food") }
+    /* Defaults to the first category that actually exists: a hard-coded "food" would point at a
+       category the user is free to delete, and the new rule would then reference a missing id. */
+    var autoCat by remember { mutableStateOf(s.cats.firstOrNull()?.id ?: "food") }
     var autoFreq by remember { mutableStateOf("monthly") }
     var autoStart by remember { mutableStateOf(s.today) }
     var autoNote by remember { mutableStateOf("") }

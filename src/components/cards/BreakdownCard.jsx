@@ -53,6 +53,14 @@ export default function BreakdownCard({
         </div>
       </div>
 
+      <div className="totals-row" style={{marginTop:10}}>
+        <div>
+          <div className="totals-label">{t('card.breakdown.saved')}</div>
+          <div className="totals-value" style={{color:(rangeBudget-totalSpent)<0?'var(--negative)':'var(--positive)'}}>{MYR(rangeBudget-totalSpent)}</div>
+          <div className="totals-caption">{rangeLabel}</div>
+        </div>
+      </div>
+
       <div className="insights-row">
         <span className="insight-item">{t('card.breakdown.avgPerDay')} <strong>{MYR(avgPerDayInRange)}</strong></span>
         <span className="insight-sep">·</span>

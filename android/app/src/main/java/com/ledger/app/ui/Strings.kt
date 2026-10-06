@@ -57,6 +57,7 @@ object Strings {
         "log.categories" to "Categories",
         "log.pickOne" to "pick one",
         "log.addSpend" to "Add spend",
+        "log.add" to "Add",
         "log.update" to "Update",
         "log.cancel" to "Cancel",
 
@@ -171,6 +172,11 @@ object Strings {
         "pref.graceOff" to "Off",
         "pref.edgeBlur" to "Edge blur & fade",
         "pref.edgeBlurDesc" to "Softens the top and bottom of the screen as content scrolls under them.",
+
+        /* Experimental */
+        "sec.experimental" to "Experimental",
+        "pref.tabbedNav" to "Tabbed layout",
+        "pref.tabbedNavDesc" to "Swaps the single card dashboard for tabbed pages — Today, Spending, Budget and History — with a labelled tab bar and a Log button. Experimental: some cards keep their current look for now.",
         "pref.language" to "Language",
 
         /* Travel mode */

@@ -60,18 +60,29 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
@@ -100,6 +111,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Light tap-style haptic feedback, reused across interactive controls. */
@@ -107,6 +119,101 @@ import kotlin.math.roundToInt
 fun rememberHapticTick(): () -> Unit {
     val haptics = LocalHapticFeedback.current
     return remember(haptics) { { haptics.performHapticFeedback(HapticFeedbackType.LongPress) } }
+}
+
+/**
+ * Animates a 0..1 value toward [target] and, while it climbs, taps out a volley of haptics that
+ * quicken as the bar closes on the new figure — so a spend logged in a sheet is *felt* landing on
+ * the budget bar once that sheet is dismissed, rather than only seen.
+ *
+ * Ticks fire on the way up (the bar grew); a drop just animates, quietly.
+ *
+ * [frozen] pins the displayed value where it is. Pass true while the log sheet is open so the
+ * climb is spent in front of the user when it closes, instead of running unseen behind it.
+ */
+@Composable
+fun rememberRampingProgress(target: Float, frozen: Boolean = false): Float {
+    val haptics = LocalHapticFeedback.current
+    val anim = remember { Animatable(target.coerceIn(0f, 1f)) }
+    LaunchedEffect(target, frozen) {
+        if (frozen) return@LaunchedEffect
+        val to = target.coerceIn(0f, 1f)
+        val from = anim.value
+        val delta = to - from
+        if (abs(delta) < 0.001f) {
+            anim.snapTo(to)
+            return@LaunchedEffect
+        }
+        val climbing = delta > 0f
+        /* How far it has to travel, 0 for a sliver up to 1 from about a third of the bar. */
+        val climb = min(1f, abs(delta) * 3f)
+        val durationMs = 300f + 660f * climb
+        /* Gaps shrink as it climbs and never close below ~26 ms, so a small move earns a couple
+           of ticks while a big one earns a proper rising rattle. */
+        val gapStart = 150f - 58f * climb
+        val gapEnd = 88f - 62f * climb
+        var nextTickAt = 0f
+        var startNanos = 0L
+        var elapsedMs = 0f
+        while (elapsedMs < durationMs) {
+            withFrameNanos { now ->
+                if (startNanos == 0L) startNanos = now
+                elapsedMs = (now - startNanos) / 1_000_000f
+            }
+            val t = (elapsedMs / durationMs).coerceIn(0f, 1f)
+            /* Ease-out: it leaps off the mark and settles onto the new figure. */
+            anim.snapTo(from + delta * (1f - (1f - t) * (1f - t) * (1f - t)))
+            if (climbing && elapsedMs >= nextTickAt) {
+                haptics.performHapticFeedback(
+                    if (t < 0.5f) HapticFeedbackType.TextHandleMove else HapticFeedbackType.LongPress
+                )
+                nextTickAt = elapsedMs + gapStart + (gapEnd - gapStart) * t
+            }
+        }
+        anim.snapTo(to)
+    }
+    return anim.value
+}
+
+/**
+ * Clicks like a watch dial: every [detent] of scrolling fires [onTick]. Attach it to the
+ * scrollable itself.
+ *
+ * At most one tick is emitted per frame, so a fast fling clicks briskly instead of buzzing
+ * through dozens of haptics at once.
+ */
+@Composable
+fun Modifier.dialTicks(detent: Dp, onTick: () -> Unit): Modifier {
+    val detentPx = with(LocalDensity.current) { detent.toPx() }
+    val current by rememberUpdatedState(onTick)
+    val connection = remember(detentPx) {
+        object : NestedScrollConnection {
+            private var pending = 0f
+            private var lastTickAt = 0L
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                /* Only what the list itself scrolled: once it is at an end the surplus belongs to
+                   the dashboard behind it, and shouldn't click. */
+                pending += abs(consumed.y)
+                if (pending >= detentPx) {
+                    pending %= detentPx
+                    /* A fling passes several detents per frame, and each tick is an IPC to the
+                       system vibrator — a burst of those starts costing frames, which defeats
+                       the point. Pace them. */
+                    val now = System.nanoTime()
+                    if (now - lastTickAt >= 60_000_000L) {
+                        lastTickAt = now
+                        current()
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    return this.nestedScroll(connection)
 }
 
 /* ─── Month selector (previous/next month browsing, e.g. trend & breakdown) ─── */
@@ -514,21 +621,61 @@ fun RangeTabs(
 ) {
     val cs = MaterialTheme.colorScheme
     val tick = rememberHapticTick()
-    Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        options.forEach { (k, l) ->
-            val active = k == selected
-            Surface(
-                onClick = { tick(); onSelect(k) }, shape = RoundedCornerShape(8.dp),
-                color = if (active) cs.primary else Color.Transparent,
-                contentColor = if (active) cs.onPrimary else cs.onSurfaceVariant,
-                border = if (active) null else BorderStroke(1.dp, cs.outline),
-            ) {
-                Text(
-                    l,
-                    Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                    fontSize = 12.sp,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-                )
+    val scroll = rememberScrollState()
+    val band = with(LocalDensity.current) { 14.dp.toPx() }
+    /* The row scrolls when the tabs don't all fit, which cut the end tab off hard. A short
+       gradient dissolves whichever edge still has more to scroll to, and its strength follows
+       the scroll: the left edge fades in only once you've scrolled away from the start (and back
+       out as you return), the right edge mirrors it, so neither sits there permanently. Each
+       ramps over the band width rather than snapping on. Offscreen so the DstIn masks only the
+       tabs, not what's behind. The rects span the full row with stops placed as fractions of it:
+       shader coordinates are canvas-relative, so band-sized rects drawn at an offset would sample
+       the wrong slice of the gradient and the far edge would never dissolve. The strength rides
+       the outer stop's alpha — the inner stop stays opaque so the fade stays seamless against the
+       tabs — rather than the draw alpha, which would dim the whole row. */
+    Box(
+        modifier
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                val w = size.width
+                if (w > 0f && scroll.maxValue > 0) {
+                    val f = (band / w).coerceIn(0f, 0.5f)
+                    val left = (scroll.value / band).coerceIn(0f, 1f)
+                    val right = ((scroll.maxValue - scroll.value) / band).coerceIn(0f, 1f)
+                    if (left > 0f) drawRect(
+                        brush = Brush.horizontalGradient(
+                            0f to Color.Black.copy(alpha = 1f - left),
+                            f to Color.Black,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                    if (right > 0f) drawRect(
+                        brush = Brush.horizontalGradient(
+                            (1f - f) to Color.Black,
+                            1f to Color.Black.copy(alpha = 1f - right),
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+            }
+    ) {
+        Row(Modifier.horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            options.forEach { (k, l) ->
+                val active = k == selected
+                Surface(
+                    onClick = { tick(); onSelect(k) }, shape = RoundedCornerShape(8.dp),
+                    color = if (active) cs.primary else Color.Transparent,
+                    contentColor = if (active) cs.onPrimary else cs.onSurfaceVariant,
+                    border = if (active) null else BorderStroke(1.dp, cs.outline),
+                ) {
+                    Text(
+                        l,
+                        Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                        fontSize = 12.sp,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
             }
         }
     }
@@ -803,10 +950,11 @@ val progressiveEdgeBlurSupported: Boolean =
  * Blurs *and* fades the top and bottom edges of the scrolling content, so cards dissolve
  * into the background instead of hard-clipping at the viewport edge.
  *
- * The blur is a real gaussian blur: [backdrop] must be the [LayerBackdrop] the scrolling
+ * The blur is a real gaussian blur: [backdrop] should be the [LayerBackdrop] the scrolling
  * content was captured into with `Modifier.layerBackdrop`. `progressiveBlur` masks it so it
  * is strongest at the screen edge and fades to nothing further in, and a matching colour
- * fade is layered on top so the edge also dissolves into the background.
+ * fade is layered on top so the edge also dissolves into the background. Pass no [backdrop]
+ * to skip the blur entirely and draw the colour fade alone.
  *
  * The colour fade is also what keeps the edge from flickering: the blurred band samples a
  * copy of the list that is re-recorded every frame, so on a fast scroll it can lag the sharp
@@ -821,13 +969,26 @@ val progressiveEdgeBlurSupported: Boolean =
  */
 @Composable
 fun BoxScope.ScreenEdgeBlur(
-    backdrop: LayerBackdrop,
+    /* The captured content to blur. Leave null (the default) for a fade with no blur at all —
+       the History list does this, because blurring the list samples the rows themselves and
+       smears them into dark blobs instead of dissolving them, and a pure surface fade (which
+       is also what the web draws) reads clean. */
+    backdrop: LayerBackdrop? = null,
     topHeight: Dp,
     bottomHeight: Dp,
     radius: Dp = 24.dp,
     fade: Float = 0.55f,
+    /* What the edge dissolves into: the page background for the dashboard, the card's own
+       surface when the blur wraps a list that lives inside a card. */
+    fadeColor: Color = MaterialTheme.colorScheme.background,
+    /* Optional cap on how far in the *blur* reaches; the fade still spans the full height.
+       The blur is almost the whole cost of this composable — it re-records the content into a
+       layer and runs a RenderEffect over it every frame — and past the first few dp the fade is
+       opaque enough that sharp content is indistinguishable from blurred. null = same band as
+       the fade, which is the original behaviour. */
+    blurHeight: Dp? = null,
 ) {
-    val bg = MaterialTheme.colorScheme.background
+    val bg = fadeColor
     val blurPx = with(LocalDensity.current) { radius.toPx() }
     // Remembered so the render effects are re-applied only when the radius changes,
     // rather than on every recomposition.
@@ -835,47 +996,66 @@ fun BoxScope.ScreenEdgeBlur(
         remember(blurPx) { { progressiveBlur(blurRadius = blurPx, fadeStart = 1f, fadeEnd = 0f) } }
     val bottomEffects: BackdropEffectScope.() -> Unit =
         remember(blurPx) { { progressiveBlur(blurRadius = blurPx, fadeStart = 0f, fadeEnd = 1f) } }
+    val topBlurHeight = (blurHeight ?: topHeight).coerceAtMost(topHeight)
+    val bottomBlurHeight = (blurHeight ?: bottomHeight).coerceAtMost(bottomHeight)
+    /* Blur only when a layer was captured and the device can render it; otherwise this is a pure
+       fade, so a caller that wants no blur simply passes no backdrop. */
+    val blurBackdrop = if (progressiveEdgeBlurSupported) backdrop else null
 
-    /* Top — fully blurred and faded at the very top, sharp and clear at topHeight. */
+    /* Top — fully blurred and faded at the very top, sharp and clear at topHeight. The blurred
+       band is drawn first, with the colour fade layered over it. */
+    if (blurBackdrop != null) {
+        val bd = blurBackdrop
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(topBlurHeight)
+                .drawPlainBackdrop(
+                    backdrop = bd,
+                    shape = { RectangleShape },
+                    effects = topEffects,
+                )
+        )
+    }
     Box(
         Modifier
             .align(Alignment.TopCenter)
             .fillMaxWidth()
             .height(topHeight)
-            .then(
-                if (progressiveEdgeBlurSupported) Modifier.drawPlainBackdrop(
-                    backdrop = backdrop,
-                    shape = { RectangleShape },
-                    effects = topEffects,
-                ) else Modifier
-            )
-            // Drawn over the blurred band (drawPlainBackdrop draws it first).
             .background(
                 Brush.verticalGradient(
                     0f to bg.copy(alpha = fade),
-                    0.45f to bg.copy(alpha = fade * 0.35f),
+                    0.4f to bg.copy(alpha = fade * 0.74f),
                     1f to bg.copy(alpha = 0f),
                 )
             )
     )
 
     /* Bottom — sharp and clear at the top of the band, blurred and faded at the screen edge. */
+    if (blurBackdrop != null) {
+        val bd = blurBackdrop
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(bottomBlurHeight)
+                .drawPlainBackdrop(
+                    backdrop = bd,
+                    shape = { RectangleShape },
+                    effects = bottomEffects,
+                )
+        )
+    }
     Box(
         Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
             .height(bottomHeight)
-            .then(
-                if (progressiveEdgeBlurSupported) Modifier.drawPlainBackdrop(
-                    backdrop = backdrop,
-                    shape = { RectangleShape },
-                    effects = bottomEffects,
-                ) else Modifier
-            )
             .background(
                 Brush.verticalGradient(
                     0f to bg.copy(alpha = 0f),
-                    0.55f to bg.copy(alpha = fade * 0.35f),
+                    0.6f to bg.copy(alpha = fade * 0.74f),
                     1f to bg.copy(alpha = fade),
                 )
             )

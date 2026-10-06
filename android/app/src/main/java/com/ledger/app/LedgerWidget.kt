@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.RemoteViews
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -32,8 +33,13 @@ class LedgerWidget : AppWidgetProvider() {
         val appContext = context.applicationContext
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val views = buildViews(appContext)
-                ids.forEach { manager.updateAppWidget(it, views) }
+                /* Guarded like the other providers' shared path in WidgetCommon: a DataStore read
+                   that throws here would otherwise escape the coroutine and take the process down
+                   on nothing more than a widget refresh. */
+                val views = runCatching { buildViews(appContext) }
+                    .onFailure { Log.w("LedgerWidget", "Couldn't render widget", it) }
+                    .getOrNull()
+                if (views != null) ids.forEach { manager.updateAppWidget(it, views) }
             } finally {
                 pending.finish()
             }

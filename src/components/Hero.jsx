@@ -1,3 +1,4 @@
+import { useEffect,useRef,useState } from 'react';
 import { I } from '../lib/icons';
 import { t } from '../lib/i18n';
 
@@ -7,7 +8,25 @@ export default function Hero({
   setMoveMode,setShowTopUp,todayRemaining,dailyBudget,effectiveMonthlyBudget,settings,
   runningBalance,avgDailySpend,daysOver,projectedTotal,projectedDelta,
   budgetPctFull,periodSpent,dayCells,theme,today,relativeDate,elapsedDays,bankedSoFar,
+  progressFrozen=false,
 }){
+  /* The budget bar keeps its old width while a sheet covers the dashboard, so the climb to the
+     new figure is spent in front of the user once that sheet closes. It also flashes as it
+     grows, which is the web's stand-in for the Android haptics. */
+  const prevPct=useRef(budgetPctFull);
+  const[shownPct,setShownPct]=useState(budgetPctFull);
+  const[fillPulse,setFillPulse]=useState(false);
+  useEffect(()=>{
+    if(progressFrozen)return;
+    if(budgetPctFull>prevPct.current+0.01)setFillPulse(true);
+    prevPct.current=budgetPctFull;
+    setShownPct(budgetPctFull);
+  },[budgetPctFull,progressFrozen]);
+  useEffect(()=>{
+    if(!fillPulse)return;
+    const id=setTimeout(()=>setFillPulse(false),900);
+    return()=>clearTimeout(id);
+  },[fillPulse]);
   return(
     <div className="hero fade-in">
       <div className="hero-accent"/>
@@ -89,7 +108,7 @@ export default function Hero({
           </span>
         </div>
         <div className="piggy-progress">
-          <div className="piggy-progress-fill" style={{width:`${budgetPctFull}%`,background:periodSpent>effectiveMonthlyBudget?'var(--negative)':'var(--accent)'}}/>
+          <div className={`piggy-progress-fill hero-progress-fill${fillPulse?' pulse':''}`} style={{width:`${shownPct}%`,background:periodSpent>effectiveMonthlyBudget?'var(--negative)':'var(--accent)'}}/>
         </div>
       </div>
 

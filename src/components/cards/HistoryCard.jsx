@@ -10,6 +10,7 @@ export default function HistoryCard({
   activeFilterCount,resetFilters,historyList,historySpentTotal,historyToppedTotal,groupedHistory,
   MYR,today,balancesOn,startEdit,duplicateExpense,removeExpense,removeTopUp,onViewReceipt,
   filterTags=[],toggleFilterTag,setFilterTags,allTags=[],
+  edgeBlur=true,
 }){
   return(
     <div className="card fade-in stagger-4">
@@ -76,71 +77,75 @@ export default function HistoryCard({
         {filterTags.length>0&&<span style={{color:'var(--text-muted)'}}>{filterTags.length} {filterTags.length===1?t('history.tagFilter'):t('history.tagFilters')}</span>}
       </div>
 
-      <div className="tx-list scroll">
-        {historyList.length===0&&(
-          <div className="empty">
-            <div className="empty-illustration">{(expenses.length+topUps.length)===0?"◌":"∅"}</div>
-            {(expenses.length+topUps.length)===0?t('history.noSpends'):t('history.noMatch')}
-            <div className="empty-sub">{(expenses.length+topUps.length)===0?t('history.dataStays'):t('history.tryAdjust')}</div>
-          </div>
-        )}
-        {groupedHistory.map((g,gi)=>(
-          <Fragment key={g.label||gi}>
-            {g.label&&(
-              <div className="tx-group-header">
-                <span>{g.label}</span>
-                <span className="tx-group-total mono">{MYR(g.total)}</span>
-              </div>
-            )}
-            {g.items.map(e=>{
-              if(e.type==='topup'){
+      <div className="tx-scroll-wrap">
+        <div className={"tx-list scroll"+(edgeBlur?" tx-edge-mask":"")}>
+          {historyList.length===0&&(
+            <div className="empty">
+              <div className="empty-illustration">{(expenses.length+topUps.length)===0?"◌":"∅"}</div>
+              {(expenses.length+topUps.length)===0?t('history.noSpends'):t('history.noMatch')}
+              <div className="empty-sub">{(expenses.length+topUps.length)===0?t('history.dataStays'):t('history.tryAdjust')}</div>
+            </div>
+          )}
+          {groupedHistory.map((g,gi)=>(
+            <Fragment key={g.label||gi}>
+              {g.label&&(
+                <div className="tx-group-header">
+                  <span>{g.label}</span>
+                  <span className="tx-group-total mono">{MYR(g.total)}</span>
+                </div>
+              )}
+              {g.items.map(e=>{
+                if(e.type==='topup'){
+                  return(
+                    <div className="tx-row" key={`topup-${e.id}`} style={{'--cat-color':e.amount>=0?'var(--positive)':'var(--warning)'}}>
+                      <span className="tx-glyph">{e.amount>=0?(balancesOn?<I.Wallet style={{width:15,height:15}}/>:<I.Zap style={{width:15,height:15}}/>):<I.Wallet style={{width:15,height:15}}/>}</span>
+                      <div className="tx-main">
+                        <div className="tx-cat">{e.amount>=0?(balancesOn?t('history.moveToBudget'):t('history.topUp')):t('history.returnToBalance')}</div>
+                        {e.note&&<div className="tx-note">{e.note}</div>}
+                      </div>
+                      <span className="tx-date">{relativeDate(e.date,today)}</span>
+                      <span className="tx-amount" style={{color:e.amount>=0?'var(--positive)':'var(--warning)'}}>{e.amount>=0?'+':''}{MYR(e.amount)}</span>
+                      <div className="tx-actions">
+                        <button className="tx-action-btn danger" onClick={()=>removeTopUp(e.id)} title={t('common.removeTransfer')}><I.Trash/></button>
+                      </div>
+                    </div>
+                  );
+                }
+                const es=expCats(e);
+                const cat=cats.find(c=>c.id===es[0]);
                 return(
-                  <div className="tx-row" key={`topup-${e.id}`} style={{'--cat-color':e.amount>=0?'var(--positive)':'var(--warning)'}}>
-                    <span className="tx-glyph">{e.amount>=0?(balancesOn?<I.Wallet style={{width:15,height:15}}/>:<I.Zap style={{width:15,height:15}}/>):<I.Wallet style={{width:15,height:15}}/>}</span>
+                  <div className="tx-row" key={e.id} style={{'--cat-color':cat?.color}}>
+                    <span className="tx-glyph">{cat?.glyph}</span>
                     <div className="tx-main">
-                      <div className="tx-cat">{e.amount>=0?(balancesOn?t('history.moveToBudget'):t('history.topUp')):t('history.returnToBalance')}</div>
+                      <div className="tx-cat">{cat?.label||es[0]}{es.length>1&&<span style={{color:'var(--text-muted)',fontWeight:400}}> +{es.length-1}</span>}</div>
                       {e.note&&<div className="tx-note">{e.note}</div>}
+                      {Array.isArray(e.tags)&&e.tags.length>0&&(
+                        <div className="tx-tags">{e.tags.map(t=><span className="tx-tag" key={t}>#{t}</span>)}</div>
+                      )}
+                      {e.receipt&&<img className="tx-receipt" src={e.receipt} alt={t('common.receipt')} onClick={()=>onViewReceipt&&onViewReceipt(e.receipt)}/>}
                     </div>
                     <span className="tx-date">{relativeDate(e.date,today)}</span>
-                    <span className="tx-amount" style={{color:e.amount>=0?'var(--positive)':'var(--warning)'}}>{e.amount>=0?'+':''}{MYR(e.amount)}</span>
+                    <span className="tx-amount">
+                      {e.currency&&typeof e.foreignAmount==='number'?(
+                        <>
+                          <span className="tx-amount-foreign">{fmt(e.foreignAmount,e.currency)}</span>
+                          <span className="tx-amount-home">≈ {MYR(e.amount)}</span>
+                        </>
+                      ):MYR(e.amount)}
+                    </span>
                     <div className="tx-actions">
-                      <button className="tx-action-btn danger" onClick={()=>removeTopUp(e.id)} title={t('common.removeTransfer')}><I.Trash/></button>
+                      <button className="tx-action-btn" onClick={()=>startEdit(e)} title={t('common.edit')}><I.Edit/></button>
+                      <button className="tx-action-btn" onClick={()=>duplicateExpense(e)} title={t('common.duplicate')}><I.Copy/></button>
+                      <button className="tx-action-btn danger" onClick={()=>removeExpense(e.id)} title={t('common.delete')}><I.Trash/></button>
                     </div>
                   </div>
                 );
-              }
-              const es=expCats(e);
-              const cat=cats.find(c=>c.id===es[0]);
-              return(
-                <div className="tx-row" key={e.id} style={{'--cat-color':cat?.color}}>
-                  <span className="tx-glyph">{cat?.glyph}</span>
-                  <div className="tx-main">
-                    <div className="tx-cat">{cat?.label||es[0]}{es.length>1&&<span style={{color:'var(--text-muted)',fontWeight:400}}> +{es.length-1}</span>}</div>
-                    {e.note&&<div className="tx-note">{e.note}</div>}
-                    {Array.isArray(e.tags)&&e.tags.length>0&&(
-                      <div className="tx-tags">{e.tags.map(t=><span className="tx-tag" key={t}>#{t}</span>)}</div>
-                    )}
-                    {e.receipt&&<img className="tx-receipt" src={e.receipt} alt={t('common.receipt')} onClick={()=>onViewReceipt&&onViewReceipt(e.receipt)}/>}
-                  </div>
-                  <span className="tx-date">{relativeDate(e.date,today)}</span>
-                  <span className="tx-amount">
-                    {e.currency&&typeof e.foreignAmount==='number'?(
-                      <>
-                        <span className="tx-amount-foreign">{fmt(e.foreignAmount,e.currency)}</span>
-                        <span className="tx-amount-home">≈ {MYR(e.amount)}</span>
-                      </>
-                    ):MYR(e.amount)}
-                  </span>
-                  <div className="tx-actions">
-                    <button className="tx-action-btn" onClick={()=>startEdit(e)} title={t('common.edit')}><I.Edit/></button>
-                    <button className="tx-action-btn" onClick={()=>duplicateExpense(e)} title={t('common.duplicate')}><I.Copy/></button>
-                    <button className="tx-action-btn danger" onClick={()=>removeExpense(e.id)} title={t('common.delete')}><I.Trash/></button>
-                  </div>
-                </div>
-              );
-            })}
-          </Fragment>
-        ))}
+              })}
+            </Fragment>
+          ))}
+        </div>
+        {edgeBlur&&<div className="tx-edge top"/>}
+        {edgeBlur&&<div className="tx-edge bottom"/>}
       </div>
     </div>
   );

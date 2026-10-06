@@ -68,13 +68,10 @@ export const spendStreaks=(expenses,today,grace=0)=>{
   return {current,best,loggedToday};
 };
 
-/* Cards renamed since a stored layout was saved, mapped to their current id so the
-   card keeps the position the user put it in. */
-const LEGACY_CARD_IDS={trophies:'streak'};
 /* Merge a stored card order with the known cards: keep the user's order, drop unknown
    ids, and append cards added since — so shipping a new card never resets a layout. */
 export const mergeCardOrder=(stored,known)=>{
-  const list=(Array.isArray(stored)?stored:[]).map(id=>LEGACY_CARD_IDS[id]||id);
+  const list=(Array.isArray(stored)?stored:[]);
   const kept=list.filter((id,i)=>known.includes(id)&&list.indexOf(id)===i);
   return [...kept,...known.filter(id=>!kept.includes(id))];
 };
@@ -82,13 +79,18 @@ export const mergeCardOrder=(stored,known)=>{
 /* Tags are free-form labels on a spend (max 8 per entry). A leading '#' is optional and
    stripped, and duplicates are dropped so the same tag can't be added twice. */
 export const cleanTags = tags => Array.isArray(tags)
-  ? [...new Set(tags.map(t => String(t).trim().replace(/^#+/, '')).filter(Boolean))].slice(0, 8)
+  /* Trim again after stripping '#', so "# lunch" becomes "lunch" and not " lunch" — the
+     Android implementation does the same. */
+  ? [...new Set(tags.map(t => String(t).trim().replace(/^#+/, '').trim()).filter(Boolean))].slice(0, 8)
   : [];
 /* Enforce single-category selection across all expenses */
 export const normalizeExpense = e => {
   if (!e) return e;
   const cat = (Array.isArray(e.categories) && e.categories.length ? e.categories[0] : e.category) || 'food';
-  return { ...e, category: cat, categories: [cat], tags: cleanTags(e.tags) };
+  /* Tags are only ever normalised where they are typed, never on load, so a stored entry is
+     not silently rewritten here — matching the Android implementation. The array type is still
+     guaranteed, the way the Android model's default does. */
+  return { ...e, category: cat, categories: [cat], tags: Array.isArray(e.tags) ? e.tags : [] };
 };
 /* Drop falsy / malformed entries so a bad import or cloud copy can never crash
    the renderer (e.g. spentByDay reading amount off null). */
@@ -212,15 +214,20 @@ export const loadGoogleFont=(family)=>{
 export const customFontStack=name=>`'${name}',system-ui,-apple-system,BlinkMacSystemFont,sans-serif`;
 
 /* Advance a Date by a frequency — used by automations. */
-export const advanceDate=(d,freq)=>{
+export const advanceDate=(d,freq,anchor)=>{
   // Parse bare yyyy-MM-dd strings as LOCAL time — new Date('yyyy-MM-dd') is UTC
   // and can land a day early in UTC-negative zones, re-adding a recurring entry.
   const nd=new Date(typeof d==='string'?d+"T00:00:00":d);
   if(freq==='weekly')nd.setDate(nd.getDate()+7);
   else if(freq==='monthly'){
-    const day=nd.getDate();
-    nd.setMonth(nd.getMonth()+1);
-    if(nd.getDate()<day)nd.setDate(0); // clamp (e.g. 31st → last day of month)
+    /* Monthly rules stay anchored on the rule's start day-of-month (clamped to the length of
+       each month), so a rule that starts on the 31st doesn't drift to the 28th after February
+       and stay there. Same rule the Android implementation follows. */
+    const a=anchor?new Date(typeof anchor==='string'?anchor+"T00:00:00":anchor):nd;
+    const target=new Date(nd.getFullYear(),nd.getMonth()+1,1);
+    const dim=new Date(target.getFullYear(),target.getMonth()+1,0).getDate();
+    target.setDate(Math.min(a.getDate(),dim));
+    return target;
   }else nd.setDate(nd.getDate()+1);
   return nd;
 };

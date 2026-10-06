@@ -43,6 +43,7 @@ import com.ledger.app.ui.components.FieldLabel
 import com.ledger.app.ui.components.MonthSelector
 import com.ledger.app.ui.components.RangeTabs
 import com.ledger.app.ui.components.StatDivider
+import com.ledger.app.ui.components.innerSurfaceColor
 import com.ledger.app.ui.parseColor
 import com.ledger.app.ui.t
 import com.ledger.app.util.monthEndKey
@@ -78,25 +79,6 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
     CardContainer(
         title = t("card.breakdown.title"),
         icon = Icons.Outlined.PieChart,
-        trailing = {
-            if (editingBudgets) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LinkText(t("card.breakdown.save")) {
-                        val next = drafts.mapNotNull { (id, v) ->
-                            val n = v.toDoubleOrNull()
-                            if (n != null && n > 0) id to n else null
-                        }.toMap()
-                        vm.saveCatBudgets(next)
-                        editingBudgets = false
-                    }
-                    LinkText(t("card.breakdown.cancel")) { editingBudgets = false }
-                }
-            } else {
-                LinkText(t("card.breakdown.budgets")) {
-                    drafts = s.catBudgets.mapValues { (_, v) -> v.toString() }; editingBudgets = true
-                }
-            }
-        },
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -167,6 +149,41 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
                 t("card.breakdown.vs", "amount" to fmtD(s, data.rangeBudget), "days" to data.rangeDays),
                 Modifier.weight(1f),
                 valueColor = pctColor,
+            )
+        }
+
+        /* How much of the selected month's allowance is left over — the headline this page is for. */
+        val saved = data.rangeBudget - data.totalSpent
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(innerSurfaceColor())
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    t("card.breakdown.saved"),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    data.rangeLabel,
+                    fontSize = 10.sp,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                fmtD(s, saved),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = if (saved < 0) negative else positive,
             )
         }
 
@@ -258,6 +275,40 @@ fun BreakdownCard(vm: LedgerViewModel, s: LedgerState) {
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
             }
+        }
+
+        /* Wide bars at the foot of the card: the floating Settings bubble sits over the card's top
+           corner, so the budget controls live down here instead. */
+        Spacer(Modifier.height(14.dp))
+        if (editingBudgets) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Btn(
+                    t("card.breakdown.save"),
+                    onClick = {
+                        vm.saveCatBudgets(drafts.mapNotNull { (id, v) ->
+                            v.toDoubleOrNull()?.takeIf { it > 0 }?.let { id to it }
+                        }.toMap())
+                        editingBudgets = false
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                Btn(
+                    t("card.breakdown.cancel"),
+                    onClick = { editingBudgets = false },
+                    variant = "secondary",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            Btn(
+                t("card.breakdown.budgets"),
+                onClick = {
+                    drafts = s.catBudgets.mapValues { (_, v) -> v.toString() }
+                    editingBudgets = true
+                },
+                variant = "secondary",
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

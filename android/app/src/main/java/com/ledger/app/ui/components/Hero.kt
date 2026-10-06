@@ -54,6 +54,9 @@ fun Hero(
     s: LedgerState,
     myr: (Double) -> String,
     onMoveMoney: () -> Unit,
+    /* True while a sheet is covering the dashboard: the budget bar holds its old width so the
+       climb to the new figure happens once the sheet closes and the bar is actually on screen. */
+    progressFrozen: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     val accent = parseColor(s.theme.accent) ?: cs.primary
@@ -107,14 +110,6 @@ fun Hero(
                         }
                     }
                 }
-                Spacer(Modifier.width(10.dp))
-                Btn(
-                    if (s.balancesOn) t("hero.moveMoney") else t("hero.topUp"),
-                    onClick = onMoveMoney,
-                    variant = "secondary",
-                    small = true,
-                    icon = if (s.balancesOn) Icons.Outlined.Wallet else Icons.Outlined.Bolt
-                )
             }
 
             if (s.todayRemaining < 0) {
@@ -204,9 +199,15 @@ fun Hero(
                 )
             }
             Spacer(Modifier.height(6.dp))
+            /* The fill climbs into its new width instead of jumping, and the ticks quicken as it
+               lands, so a spend logged in the sheet is felt arriving here. */
+            val budgetFill = rememberRampingProgress(
+                target = (s.budgetPctFull / 100.0).toFloat(),
+                frozen = progressFrozen,
+            )
             Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(cs.surfaceVariant)) {
                 Box(
-                    Modifier.fillMaxWidth(s.budgetPctFull.toFloat() / 100f).height(8.dp)
+                    Modifier.fillMaxWidth(budgetFill).height(8.dp)
                         .background(if (s.periodSpent > s.effectiveMonthlyBudget) negative else accent, CircleShape),
                 )
             }
@@ -330,6 +331,17 @@ fun Hero(
                 LegendDot(negative, t("hero.over2"))
                 LegendDot(accent, t("hero.today"))
             }
+
+            /* A wide bar at the foot of the card: the floating Settings bubble sits over the card's
+               top corner, so anything tappable lives down here instead. */
+            Spacer(Modifier.height(12.dp))
+            Btn(
+                if (s.balancesOn) t("hero.moveMoney") else t("hero.topUp"),
+                onClick = onMoveMoney,
+                variant = "secondary",
+                modifier = Modifier.fillMaxWidth(),
+                icon = if (s.balancesOn) Icons.Outlined.Wallet else Icons.Outlined.Bolt
+            )
         }
     }
 }
@@ -360,7 +372,7 @@ private fun StatBox(
             .background(innerSurfaceColor())
             .padding(12.dp),
     ) {
-        Text(label, fontSize = 10.5.sp, letterSpacing = 0.4.sp, color = cs.onSurfaceVariant)
+        Text(label, fontSize = 10.5.sp, letterSpacing = 0.4.sp, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(3.dp))
         Text(
             value,
@@ -372,7 +384,7 @@ private fun StatBox(
             overflow = TextOverflow.Ellipsis
         )
         Spacer(Modifier.height(2.dp))
-        Text(note, fontSize = 10.sp, color = cs.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(note, fontSize = 10.sp, color = cs.onSurfaceVariant, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

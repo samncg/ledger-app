@@ -175,6 +175,7 @@ export default {
   'card.breakdown.to': 'Hasta',
   'card.breakdown.totalSpent': 'Total gastado',
   'card.breakdown.pctAllowance': '% de la asignación',
+  'card.breakdown.saved': 'Ahorrado',
   'card.breakdown.vs': 'vs {amount} · {days} d',
   'card.breakdown.avgPerDay': 'Gasto medio/día',
   'card.breakdown.top': 'Top',
@@ -377,6 +378,7 @@ export default {
   'drawer.cats.title': 'Tus categorías',
   'drawer.cats.add': 'Añadir categoría',
   'drawer.cats.namePlaceholder': 'Nombre (p. ej. Salud)',
+  'drawer.cats.symbols': 'Símbolos',
   'drawer.cats.desc': 'Usa símbolos cortos (◇ ★ ♥ ● ▲ ◐) como icono.',
 
   'drawer.prefs.languageDesc': 'Los menús y los ajustes están traducidos. Algunos textos largos siguen en inglés por ahora.',

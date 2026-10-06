@@ -95,7 +95,11 @@ fun TravelHero(s: LedgerState, onEnd: () -> Unit) {
            equivalent beside it. Several: the home total is the only figure that still
            adds up, so it leads and each currency gets its own line. */
         Text(
-            if (multi) fmt(spentHome, s.cur) else fmt(totals.firstOrNull()?.foreign ?: 0.0, code),
+            /* `totals` is grouped by each entry's own currency, which may no longer be the trip's
+               current one (changing it never rewrites already-logged entries) — so the headline
+               figure has to carry the currency it is actually in. */
+            if (multi) fmt(spentHome, s.cur)
+            else fmt(totals.firstOrNull()?.foreign ?: 0.0, totals.firstOrNull()?.code ?: code),
             fontSize = 34.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace,
         )
         Spacer(Modifier.height(4.dp))

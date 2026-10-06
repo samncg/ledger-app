@@ -51,7 +51,10 @@ fun LineChart(
     myr: (Double) -> String,
 ) {
     val cs = MaterialTheme.colorScheme
-    var hovered by remember { mutableStateOf<TrendDay?>(null) }
+    /* Keyed on the series: the tooltip holds a TrendDay from the month it was tapped on, and
+       once that month is gone the object is no longer in `data` — indexOf() would fall back to
+       -1 → column 0 and pin a stale date and figure to the left edge. */
+    var hovered by remember(data.days) { mutableStateOf<TrendDay?>(null) }
 
     BoxWithConstraints(
         modifier

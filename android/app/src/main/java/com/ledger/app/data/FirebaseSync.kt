@@ -228,6 +228,25 @@ object FirebaseSyncSerializer {
             "balancesEnabled" to prefs.balancesEnabled,
             "overspendFromBalance" to prefs.overspendFromBalance,
             "heroMode" to prefs.heroMode,
+            /* Behavioural prefs — language, travel, streaks, reminders — synced in both
+               directions. Wallpaper, the liquid-glass look, the widget theme and the app lock
+               deliberately stay local: they describe this device, not the budget. */
+            "streakGrace" to prefs.streakGrace,
+            "edgeBlur" to prefs.edgeBlur,
+            "lang" to prefs.lang,
+            "notificationsEnabled" to prefs.notificationsEnabled,
+            "reminderHour" to prefs.reminderHour,
+            "reminderMinute" to prefs.reminderMinute,
+            "budgetAlertsEnabled" to prefs.budgetAlertsEnabled,
+            "travel" to mapOf(
+                "active" to prefs.travel.active,
+                "name" to prefs.travel.name,
+                "currency" to prefs.travel.currency,
+                "rate" to prefs.travel.rate,
+                "start" to prefs.travel.start,
+                "rateAuto" to prefs.travel.rateAuto,
+                "rateUpdatedAt" to prefs.travel.rateUpdatedAt,
+            ),
         )
 
         payload["theme"] = mapOf(
@@ -387,6 +406,26 @@ object FirebaseSyncSerializer {
             (m["balancesEnabled"] as? Boolean)?.let { p = p.copy(balancesEnabled = it) }
             (m["overspendFromBalance"] as? Boolean)?.let { p = p.copy(overspendFromBalance = it) }
             m["heroMode"]?.toString()?.let { p = p.copy(heroMode = if (it == "balance") "balance" else "daily") }
+            (m["streakGrace"] as? Number)?.toInt()?.let { p = p.copy(streakGrace = it.coerceIn(0, 60)) }
+            (m["edgeBlur"] as? Boolean)?.let { p = p.copy(edgeBlur = it) }
+            m["lang"]?.toString()?.let { l -> if (l.isNotEmpty()) p = p.copy(lang = l) }
+            (m["notificationsEnabled"] as? Boolean)?.let { p = p.copy(notificationsEnabled = it) }
+            (m["reminderHour"] as? Number)?.toInt()?.let { p = p.copy(reminderHour = it.coerceIn(0, 23)) }
+            (m["reminderMinute"] as? Number)?.toInt()?.let { p = p.copy(reminderMinute = it.coerceIn(0, 59)) }
+            (m["budgetAlertsEnabled"] as? Boolean)?.let { p = p.copy(budgetAlertsEnabled = it) }
+            (m["travel"] as? Map<String, Any?>)?.let { t ->
+                p = p.copy(
+                    travel = p.travel.copy(
+                        active = (t["active"] as? Boolean) ?: p.travel.active,
+                        name = t["name"]?.toString() ?: p.travel.name,
+                        currency = t["currency"]?.toString() ?: p.travel.currency,
+                        rate = (t["rate"] as? Number)?.toDouble() ?: p.travel.rate,
+                        start = t["start"]?.toString() ?: p.travel.start,
+                        rateAuto = (t["rateAuto"] as? Boolean) ?: p.travel.rateAuto,
+                        rateUpdatedAt = t["rateUpdatedAt"]?.toString() ?: p.travel.rateUpdatedAt,
+                    )
+                )
+            }
             p
         }
 

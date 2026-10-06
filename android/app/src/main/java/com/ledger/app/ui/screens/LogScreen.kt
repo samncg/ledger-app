@@ -32,7 +32,6 @@ import com.ledger.app.ui.t
 fun LogScreen(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
     GlassScreenBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            ScreenHeader(t("log.title"))
             Column(
                 Modifier
                     .fillMaxWidth()

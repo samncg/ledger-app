@@ -73,12 +73,22 @@ fun LogCard(vm: LedgerViewModel, s: LedgerState) {
             ChipFlow {
                 s.frequentEntries.forEach { f ->
                     val fc = s.cats.find { it.id == f.category }
+                    /* Frequent amounts are stored in the home currency, so while a trip is active
+                       they are shown and entered in the trip's currency at the current rate —
+                       otherwise the chip paired a home figure with a foreign symbol and logged it
+                       as foreign (a RM 20 spend pasted as ¥20). */
+                    val shown = if (s.travelActive && s.travelRate > 0.0) f.amount / s.travelRate else f.amount
                     CatChip(
-                        label = "${f.note.ifEmpty { fc?.label ?: f.category }} · ${symbol(cur)}${f.amount}",
+                        label = "${f.note.ifEmpty { fc?.label ?: f.category }} · ${symbol(cur)}${
+                            String.format(
+                                "%.2f",
+                                shown
+                            )
+                        }",
                         dotColor = fc?.color,
                         selected = false,
                         onClick = {
-                            vm.amount = f.amount.toString()
+                            vm.amount = "%.2f".format(shown)
                             vm.selCats = listOf(f.category)
                             vm.note = f.note
                         },
@@ -140,7 +150,7 @@ fun LogCard(vm: LedgerViewModel, s: LedgerState) {
                 onDone = { vm.addTag(tagDraft); tagDraft = "" },
             )
             Btn(
-                "Add",
+                t("log.add"),
                 onClick = { vm.addTag(tagDraft); tagDraft = "" },
                 variant = "ghost",
                 small = true,

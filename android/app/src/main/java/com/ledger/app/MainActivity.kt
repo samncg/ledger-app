@@ -2,11 +2,11 @@ package com.ledger.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
@@ -29,16 +29,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.ledger.app.data.Repository
 import com.ledger.app.ui.LedgerTheme
 import com.ledger.app.ui.LedgerViewModel
+import com.ledger.app.ui.autoWallpaperIsWhite
 import com.ledger.app.ui.components.GlassStyle
 import com.ledger.app.ui.components.LocalGlassBackdrop
 import com.ledger.app.ui.components.LocalGlassStyle
@@ -48,6 +53,8 @@ import com.ledger.app.ui.screens.DashboardScreen
 import com.ledger.app.ui.screens.LockScreen
 import com.ledger.app.ui.screens.SetupScreen
 import com.ledger.app.util.NotificationHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.kashif_e.backdrop.Backdrop
 import com.kashif_e.backdrop.backdrops.LayerBackdrop
 import com.kashif_e.backdrop.backdrops.layerBackdrop
@@ -63,6 +70,10 @@ class MainActivity : ComponentActivity() {
     private var lockPromptInFlight = false
     private var unlockLauncher: ActivityResultLauncher<Intent>? = null
 
+    /* POST_NOTIFICATIONS: asked at most once per launch, and only while this screen is resumed. */
+    private var notifAskDone = false
+    private var notifLauncher: ActivityResultLauncher<String>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -73,6 +84,12 @@ class MainActivity : ComponentActivity() {
         unlockLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             lockPromptInFlight = false
             unlocked = result.resultCode == RESULT_OK
+        }
+
+        notifLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted && vmRef?.state?.value?.prefs?.notificationsEnabled == true) {
+                vmRef?.updatePrefs { it.copy(notificationsEnabled = false) }
+            }
         }
 
         val openLogInitially = intent?.getBooleanExtra(NotificationHelper.EXTRA_OPEN_LOG, false) ?: false
@@ -86,20 +103,22 @@ class MainActivity : ComponentActivity() {
             vmRef = vm
             val state by vm.state.collectAsState()
 
-            // Request POST_NOTIFICATIONS permission on Android 13+ if enabled
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val permissionLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.RequestPermission()
-                ) { isGranted ->
-                    if (!isGranted && state.prefs.notificationsEnabled) {
-                        vm.updatePrefs { it.copy(notificationsEnabled = false) }
-                    }
-                }
-                LaunchedEffect(state.prefs.notificationsEnabled) {
-                    if (state.prefs.notificationsEnabled) {
-                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                }
+            /* The POST_NOTIFICATIONS request itself goes out from onResume (see
+               maybeAskForNotifications). Asking from composition runs before the activity is
+               resumed, and used to race the lock activity taking focus, so the system dropped the
+               dialog or dismissed it immediately and it could not be answered. This only re-checks
+               when the pref or the lock state changes. */
+            /* `state.ready` is a key on purpose: until the stored prefs have loaded, `prefs` is
+               the default object, and the readiness flip is the moment the real value of
+               `notificationsEnabled` becomes known — without it, a cold start that resumes
+               before the DataStore read finishes would never ask at all. */
+            LaunchedEffect(
+                state.ready,
+                state.prefs.notificationsEnabled,
+                state.prefs.appLockEnabled,
+                unlocked,
+            ) {
+                maybeAskForNotifications()
             }
 
             val appLockOn = state.prefs.appLockEnabled
@@ -129,7 +148,10 @@ class MainActivity : ComponentActivity() {
                         screensGlass = state.prefs.glassScreens,
                         insideGlass = state.prefs.glassScreensInside,
                         blur = state.prefs.glassBlur,
+                        barBlur = state.prefs.glassBarBlur,
                         opacity = state.prefs.glassOpacity,
+                        barGlass = state.prefs.glassBar,
+                        barOpacity = state.prefs.glassBarOpacity,
                         refraction = state.prefs.glassRefraction,
                         refractionHeight = state.prefs.glassRefractionHeight,
                         chromaticAberration = state.prefs.glassChromaticAmount / 100f,
@@ -143,6 +165,7 @@ class MainActivity : ComponentActivity() {
                             wallpaperDim = state.prefs.wallpaperDim,
                             wallBlur = state.prefs.wallBlur,
                             themeBg = state.theme.bg,
+                            autoIsWhite = autoWallpaperIsWhite(state.theme, state.categories),
                             backdrop = glassBackdrop
                         )
                         /* Nothing renders until the stored data has loaded, otherwise the
@@ -186,6 +209,33 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vmRef?.refresh()
+        maybeAskForNotifications()
+    }
+
+    /**
+     * Ask for POST_NOTIFICATIONS — at most once per launch, and only with this screen actually in
+     * front and unlocked. Asking before the activity is resumed, or while the lock activity holds
+     * focus, makes the system drop the dialog or dismiss it straight away, which is why the prompt
+     * used to appear with nothing the user could press.
+     */
+    private fun maybeAskForNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (notifAskDone) return
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        val st = vmRef?.state?.value ?: return
+        /* Until the stored prefs have loaded, `prefs` is still the default object, whose
+           notificationsEnabled is true — asking then would prompt users who turned it off. */
+        if (!st.ready) return
+        if (!st.prefs.notificationsEnabled) return
+        /* Never over the lock screen — the dialog has to be answerable. */
+        if (st.prefs.appLockEnabled && !unlocked) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        notifAskDone = true
+        notifLauncher?.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     /* Re-lock the app once it has actually gone to the background. */
@@ -201,22 +251,76 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Decode the wallpaper, bounded to roughly the size it is actually drawn at.
+ *
+ * `inJustDecodeBounds` reads only the header first, so a camera photo (which decodes to tens of
+ * megabytes) is never held at full resolution just to be drawn a few hundred dp wide.
+ */
+private fun decodeWallpaper(path: String): ImageBitmap? = try {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    val longest = maxOf(bounds.outWidth, bounds.outHeight)
+    var sample = 1
+    while (longest / sample > 2048) sample *= 2
+    BitmapFactory.decodeFile(
+        path,
+        BitmapFactory.Options().apply { inSampleSize = sample },
+    )?.asImageBitmap()
+} catch (e: Exception) {
+    null
+}
+
+/** The wallpaper the app ships with, for anyone who never picked one. */
+private fun decodeDefaultWallpaper(res: android.content.res.Resources): ImageBitmap? = try {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeResource(res, R.drawable.default_wallpaper, bounds)
+    val longest = maxOf(bounds.outWidth, bounds.outHeight)
+    var sample = 1
+    while (longest / sample > 2048) sample *= 2
+    BitmapFactory.decodeResource(
+        res,
+        R.drawable.default_wallpaper,
+        BitmapFactory.Options().apply { inSampleSize = sample },
+    )?.asImageBitmap()
+} catch (e: Exception) {
+    null
+}
+
 @Composable
 fun WallpaperBackdrop(
     wallpaperPath: String?,
     wallpaperDim: Int,
     wallBlur: Int,
     themeBg: String,
+    /* Which solid the "auto" wallpaper resolves to for the current theme. */
+    autoIsWhite: Boolean = true,
     backdrop: LayerBackdrop? = null,
 ) {
     val bgColor = parseColor(themeBg) ?: Color.Black
     val dimAlpha = (wallpaperDim.coerceIn(0, 90) / 100f)
-    val bitmap = remember(wallpaperPath) {
-        if (wallpaperPath.isNullOrEmpty()) null
-        else try {
-            BitmapFactory.decodeFile(wallpaperPath)?.asImageBitmap()
-        } catch (e: Exception) {
-            null
+    /* The stored value is a preset id ("auto" / "white" / "black" / "forest"), a custom file
+       path, or absent — which means "auto". */
+    val mode = wallpaperPath?.takeIf { it.isNotBlank() } ?: "auto"
+    val solid = when (mode) {
+        "auto" -> if (autoIsWhite) Color(0xFFFFFFFF) else Color(0xFF000000)
+        "white" -> Color(0xFFFFFFFF)
+        "black" -> Color(0xFF000000)
+        else -> null
+    }
+    /* A flat preset needs no bitmap at all; "forest" is the photo the app ships with, anything
+       else is a path to a custom image. Decoded off the composition thread and downsampled —
+       inline it blocked the first frame of every cold start on a full-resolution decode. */
+    val context = LocalContext.current
+    var bitmap by remember(mode) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(mode) {
+        if (solid != null) {
+            bitmap = null
+            return@LaunchedEffect
+        }
+        bitmap = withContext(Dispatchers.IO) {
+            if (mode == "forest") decodeDefaultWallpaper(context.resources)
+            else decodeWallpaper(mode)
         }
     }
 
@@ -225,40 +329,46 @@ fun WallpaperBackdrop(
             .fillMaxSize()
             .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier)
     ) {
-        // Base theme background with subtle depth so liquid glass always refracts light
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    androidx.compose.ui.graphics.Brush.radialGradient(
-                        colors = listOf(
-                            bgColor,
-                            Color(0xFF06080B),
-                            Color.Black
-                        ),
-                        center = androidx.compose.ui.geometry.Offset(300f, 400f),
-                        radius = 1200f
-                    )
-                )
-        )
-
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(if (wallBlur > 0) Modifier.blur(wallBlur.dp) else Modifier)
-            )
-        }
-
-        if (bitmap != null) {
+        if (solid != null) {
+            // A flat white / black wallpaper: one sheet, no photo and no dimming.
+            Box(Modifier.fillMaxSize().background(solid))
+        } else {
+            // Base theme background with subtle depth so liquid glass always refracts light
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(bgColor.copy(alpha = dimAlpha))
+                    .background(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            colors = listOf(
+                                bgColor,
+                                Color(0xFF06080B),
+                                Color.Black
+                            ),
+                            center = androidx.compose.ui.geometry.Offset(300f, 400f),
+                            radius = 1200f
+                        )
+                    )
             )
+
+            val shown = bitmap
+            if (shown != null) {
+                Image(
+                    bitmap = shown,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(if (wallBlur > 0) Modifier.blur(wallBlur.dp) else Modifier)
+                )
+            }
+
+            if (bitmap != null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(bgColor.copy(alpha = dimAlpha))
+                )
+            }
         }
     }
 }

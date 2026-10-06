@@ -175,6 +175,7 @@ export default {
   'card.breakdown.to':'종료',
   'card.breakdown.totalSpent':'총 지출',
   'card.breakdown.pctAllowance':'허용액 대비 %',
+  'card.breakdown.saved':'절약',
   'card.breakdown.vs':'{amount} 대비 · {days}일',
   'card.breakdown.avgPerDay':'일평균 지출',
   'card.breakdown.top':'최다',
@@ -377,6 +378,7 @@ export default {
   'drawer.cats.title':'내 카테고리',
   'drawer.cats.add':'카테고리 추가',
   'drawer.cats.namePlaceholder':'이름 (예: 건강)',
+  'drawer.cats.symbols':'기호',
   'drawer.cats.desc':'아이콘에는 짧은 기호(◇ ★ ♥ ● ▲ ◐)를 사용하세요.',
 
   'drawer.prefs.languageDesc':'메뉴와 설정이 번역됩니다. 일부 긴 문장은 아직 영어로 표시됩니다.',

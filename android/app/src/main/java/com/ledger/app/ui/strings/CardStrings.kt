@@ -23,6 +23,7 @@ val CARD_STRINGS: Map<String, String> = mapOf(
     "card.breakdown.maxDate" to "Max date",
     "card.breakdown.totalSpent" to "Total spent",
     "card.breakdown.pctAllowance" to "% of allowance",
+    "card.breakdown.saved" to "Saved",
     "card.breakdown.vs" to "vs {amount} · {days}d",
     "card.breakdown.avgPerDay" to "Avg spending/day",
     "card.breakdown.txns" to "Txns",

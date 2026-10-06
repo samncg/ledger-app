@@ -54,8 +54,22 @@ fun fontFor(id: String): FontFamily = when (id) {
     "serif" -> FontFamily.Serif
     "mono" -> FontFamily.Monospace
     "cursive" -> FontFamily.Cursive
+    /* Android's own system typeface families — real variety without shipping font files. */
+    "condensed" -> systemFontFamily("sans-serif-condensed")
+    "light" -> systemFontFamily("sans-serif-light")
+    "medium" -> systemFontFamily("sans-serif-medium")
+    "black" -> systemFontFamily("sans-serif-black")
+    "serifMono" -> systemFontFamily("serif-monospace")
+    "casual" -> systemFontFamily("casual")
+    "smallCaps" -> systemFontFamily("sans-serif-smallcaps")
     else -> FontFamily.Default
 }
+
+/** One of Android's built-in system typeface families, wrapped as a Compose [FontFamily]. */
+private fun systemFontFamily(name: String): FontFamily =
+    androidx.compose.ui.text.font.FontFamily(
+        android.graphics.Typeface.create(name, android.graphics.Typeface.NORMAL)
+    )
 
 private fun typographyWith(font: FontFamily): Typography {
     val base = Typography()

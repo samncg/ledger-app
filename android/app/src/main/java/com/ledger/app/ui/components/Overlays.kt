@@ -6,6 +6,8 @@ import android.content.ContextWrapper
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,7 +28,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +49,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -69,6 +76,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
 import com.ledger.app.LedgerWidget
 import com.ledger.app.WidgetRefresher
+import com.ledger.app.ui.CAT_GLYPH_PRESETS
 import com.ledger.app.ui.FONT_OPTIONS
 import com.ledger.app.ui.HEAT_LEVELS
 import com.ledger.app.ui.HEAT_PRESETS
@@ -94,15 +102,25 @@ import java.util.Locale
    ═══════════════════════════════════════════ */
 
 /* ─── Budget settings drawer ─── */
+/* A balance shown in an editable field: the *current* balance (start minus everything moved to
+   the budget, plus every leftover banked), rounded to cents and written with a '.' so the
+   numeric field parses it back regardless of the device locale. */
+private fun balanceDraft(v: Double): String {
+    val r = Math.round(v * 100.0) / 100.0
+    return if (r == Math.floor(r)) r.toLong().toString() else r.toString()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BudgetDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
     var budget by remember { mutableStateOf(if (s.settings != null) s.settings.monthlyBudget.toString() else "") }
     var days by remember { mutableStateOf(if (s.settings != null) s.settings.periodDays.toString() else "") }
     var startDate by remember { mutableStateOf(s.settings?.startDate ?: "") }
-    var balance by remember { mutableStateOf(s.balance.start.toString()) }
+    /* Shows the same figure the Money drawer does — the live balance — not the stored starting
+       amount, so this field and "Money → Balance" can never disagree. */
+    var balance by remember { mutableStateOf(balanceDraft(s.bankBalance)) }
 
-    DrawerSheet(onClose) {
+    DrawerSheet {
         DrawerHeader(t("drawer.budgetSettings"), onClose)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column {
@@ -164,7 +182,13 @@ fun BudgetDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn(t("drawer.saveChanges"), onClick = {
-                vm.saveSetup(budget, days, startDate, s.cur, balance)
+                /* The field holds the live balance; the stored value is the balance at the
+                   start, so shift that start by however far the user moved the live figure. */
+                val entered = balance.trim().toDoubleOrNull()
+                val startArg = if (s.balancesOn && entered != null)
+                    balanceDraft(s.balance.start + (entered - s.bankBalance))
+                else balance
+                vm.saveSetup(budget, days, startDate, s.cur, startArg)
                 onClose()
             }, modifier = Modifier.weight(1f))
             Btn(t("app.cancel"), onClick = onClose, variant = "ghost")
@@ -179,7 +203,7 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
     var amount by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
 
-    DrawerSheet(onClose) {
+    DrawerSheet {
         DrawerHeader(
             if (s.balancesOn) t("drawer.moneyTitle") else t("drawer.topUpBudgetTitle"),
             onClose,
@@ -331,34 +355,93 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
     }
 }
 
-/* ─── Customize drawer ─── */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The Settings page: the customization tabs, but a full screen instead of a sheet. The tab row
+ * is pinned to the top as you scroll, sitting just below the floating back arrow so the two
+ * never overlap. It has no close button of its own — the arrow in the top-right corner closes it.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CustomizeDrawer(vm: LedgerViewModel, s: LedgerState, onClose: () -> Unit) {
+fun SettingsScreen(vm: LedgerViewModel, s: LedgerState) {
     var tab by remember { mutableStateOf("theme") }
-
-    DrawerSheet(onClose, contentHeight = 560.dp) {
-        DrawerHeader(t("top.customize"), onClose)
-        RangeTabs(
-            options = listOf(
-                "theme" to t("tab.theme"),
-                "chart" to t("tab.chart"),
-                "cats" to t("tab.cats"),
-                "travel" to t("tab.travel"),
-                "prefs" to t("tab.prefs")
-            ),
-            selected = tab,
-            onSelect = { tab = it },
-        )
-        Spacer(Modifier.height(12.dp))
-
-        when (tab) {
-            "theme" -> ThemeTab(vm, s)
-            "chart" -> ChartTab(vm, s)
-            "cats" -> CatsTab(vm, s)
-            "travel" -> TravelTab(vm, s)
-            "prefs" -> PrefsTab(vm, s)
+    val cs = MaterialTheme.colorScheme
+    GlassScreenBackground {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                /* The scroll area starts below the floating bubble, so the pinned tab row can
+                   never end up underneath it. */
+                .padding(top = HUB_TOP_CLEARANCE),
+        ) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = HUB_BOTTOM_INSET),
+            ) {
+                stickyHeader {
+                    /* The row itself stays opaque so the settings scrolling underneath don't show
+                       through it, and a short gradient beneath it carries that content out to
+                       nothing — the same fade the screen edges use — instead of cutting it at a
+                       hard seam that slides up under the tabs. */
+                    Column(Modifier.fillMaxWidth()) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(cs.background)
+                                .padding(vertical = 6.dp)
+                        ) {
+                            Column(Modifier.padding(horizontal = 18.dp)) {
+                                SettingsTabs(tab) { tab = it }
+                            }
+                        }
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(16.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(cs.background, cs.background.copy(alpha = 0f))
+                                    )
+                                )
+                        )
+                    }
+                }
+                item {
+                    Column(
+                        Modifier.padding(horizontal = 18.dp).padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        SettingsTabContent(tab, vm, s)
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun SettingsTabs(selected: String, onSelect: (String) -> Unit) {
+    RangeTabs(
+        options = listOf(
+            "theme" to t("tab.theme"),
+            "chart" to t("tab.chart"),
+            "cats" to t("tab.cats"),
+            "travel" to t("tab.travel"),
+            "prefs" to t("tab.prefs")
+        ),
+        selected = selected,
+        onSelect = onSelect,
+    )
+}
+
+@Composable
+private fun SettingsTabContent(tab: String, vm: LedgerViewModel, s: LedgerState) {
+    when (tab) {
+        "theme" -> ThemeTab(vm, s)
+        "chart" -> ChartTab(vm, s)
+        "cats" -> CatsTab(vm, s)
+        "travel" -> TravelTab(vm, s)
+        "prefs" -> PrefsTab(vm, s)
     }
 }
 
@@ -475,7 +558,34 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                 uri?.let { vm.setWallpaperFromUri(context, it) }
             }
 
-            if (!s.prefs.wallpaper.isNullOrEmpty()) {
+            /* Presets first: "auto" follows the theme, the solids and the shipped photo are one
+               tap away, and a custom image is the button below. */
+            val current = s.prefs.wallpaper?.takeIf { it.isNotBlank() } ?: "auto"
+            val isCustom = current !in setOf("auto", "white", "black", "forest")
+            val photoMode = current == "forest" || isCustom
+            FlowRow2(spacedBy = 8.dp) {
+                listOf(
+                    "auto" to t("drawer.wpAuto"),
+                    "white" to t("drawer.wpWhite"),
+                    "black" to t("drawer.wpBlack"),
+                    "forest" to t("drawer.wpForest"),
+                ).forEach { (key, label) ->
+                    val active = !isCustom && key == current
+                    Surface(
+                        onClick = { vm.setWallpaperPreset(key) },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                        contentColor = if (active) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        border = if (active) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    ) {
+                        Text(label, Modifier.padding(horizontal = 12.dp, vertical = 7.dp), fontSize = 12.sp)
+                    }
+                }
+            }
+            SectionDesc(t("drawer.wallpaperDesc"))
+
+            if (photoMode) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -483,22 +593,33 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                         .clip(RoundedCornerShape(12.dp))
                         .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                 ) {
-                    val bitmap = remember(s.prefs.wallpaper) {
-                        try {
-                            BitmapFactory.decodeFile(s.prefs.wallpaper)?.asImageBitmap()
-                        } catch (e: Exception) {
-                            null
-                        }
-                    }
-                    if (bitmap != null) {
+                    if (current == "forest") {
                         Image(
-                            bitmap = bitmap,
+                            painter = androidx.compose.ui.res.painterResource(com.ledger.app.R.drawable.default_wallpaper),
                             contentDescription = t("drawer.wallpaperPreview"),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(if (s.prefs.wallBlur > 0) Modifier.blur(s.prefs.wallBlur.dp) else Modifier)
                         )
+                    } else {
+                        val bitmap = remember(current) {
+                            try {
+                                BitmapFactory.decodeFile(current)?.asImageBitmap()
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = t("drawer.wallpaperPreview"),
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .then(if (s.prefs.wallBlur > 0) Modifier.blur(s.prefs.wallBlur.dp) else Modifier)
+                            )
+                        }
                     }
                     Box(
                         Modifier
@@ -525,15 +646,17 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                     steps = 19,
                     onValueChange = { vm.updateWallBlur(it.toInt()) }
                 )
+            }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Btn(
-                        t("drawer.replacePhoto"),
-                        onClick = { wallpaperPicker.launch("image/*") },
-                        variant = "secondary",
-                        modifier = Modifier.weight(1f),
-                        icon = Icons.Outlined.Upload
-                    )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Btn(
+                    t(if (isCustom) "drawer.replacePhoto" else "drawer.setPhotoWallpaper"),
+                    onClick = { wallpaperPicker.launch("image/*") },
+                    variant = "secondary",
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Image
+                )
+                if (isCustom) {
                     Btn(
                         t("log.remove"),
                         onClick = { vm.clearWallpaper(context) },
@@ -542,15 +665,6 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                         icon = Icons.Outlined.Delete
                     )
                 }
-            } else {
-                Btn(
-                    t("drawer.setPhotoWallpaper"),
-                    onClick = { wallpaperPicker.launch("image/*") },
-                    variant = "secondary",
-                    modifier = Modifier.fillMaxWidth(),
-                    icon = Icons.Outlined.Image
-                )
-                SectionDesc(t("drawer.wallpaperDesc"))
             }
 
         }
@@ -576,7 +690,14 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
             ) {
                 vm.updatePrefs { p -> p.copy(glassScreensInside = it) }
             }
-            if (s.prefs.glassEnabled || s.prefs.glassScreens) {
+            ToggleRow(
+                t("drawer.barGlass"),
+                t("drawer.barGlassDesc"),
+                s.prefs.glassBar
+            ) {
+                vm.updatePrefs { p -> p.copy(glassBar = it) }
+            }
+            if (s.prefs.glassEnabled || s.prefs.glassScreens || s.prefs.glassBar) {
                 SliderRow(
                     label = t("drawer.gaussianBlur"),
                     valueText = "${s.prefs.glassBlur}dp",
@@ -584,6 +705,22 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                     range = 0f..24f,
                     steps = 23,
                     onValueChange = { vm.updateGlassBlur(it.toInt()) }
+                )
+                SliderRow(
+                    label = t("drawer.barBlur"),
+                    valueText = "${s.prefs.glassBarBlur}dp",
+                    value = s.prefs.glassBarBlur.toFloat(),
+                    range = 0f..24f,
+                    steps = 23,
+                    onValueChange = { vm.updateGlassBarBlur(it.toInt()) }
+                )
+                SliderRow(
+                    label = t("drawer.barOpacity"),
+                    valueText = "${s.prefs.glassBarOpacity}%",
+                    value = s.prefs.glassBarOpacity.toFloat(),
+                    range = 0f..100f,
+                    steps = 20,
+                    onValueChange = { vm.updateGlassBarOpacity(it.toInt()) }
                 )
                 SliderRow(
                     label = t("drawer.transparency"),
@@ -654,16 +791,6 @@ private fun ThemeTab(vm: LedgerViewModel, s: LedgerState) {
                 t("drawer.edgeBlurDesc"),
                 s.prefs.edgeBlur,
             ) { vm.updatePrefs { p -> p.copy(edgeBlur = it) } }
-        }
-
-        CollapsibleSection(t("sec.cardLayout")) {
-            SectionDesc(t("drawer.cardLayoutDesc"))
-            Btn(
-                t("drawer.resetCardOrder"),
-                onClick = vm::resetCardOrder,
-                variant = "ghost",
-                modifier = Modifier.fillMaxWidth()
-            )
         }
     }
 }
@@ -763,6 +890,7 @@ private fun ChartTab(vm: LedgerViewModel, s: LedgerState) {
 
 @Composable
 private fun CatsTab(vm: LedgerViewModel, s: LedgerState) {
+    val tick = rememberHapticTick()
     var name by remember { mutableStateOf("") }
     var glyph by remember { mutableStateOf("★") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -793,6 +921,27 @@ private fun CatsTab(vm: LedgerViewModel, s: LedgerState) {
             )
             AppTextField(value = glyph, onChange = { glyph = it }, modifier = Modifier.width(56.dp), placeholder = "★")
             Btn("", onClick = { vm.addCategory(name, glyph); name = ""; glyph = "★" }, icon = Icons.Outlined.Add)
+        }
+        FieldLabel(t("drawer.categorySymbols"))
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            CAT_GLYPH_PRESETS.chunked(8).forEach { line ->
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    line.forEach { sym ->
+                        val active = glyph == sym
+                        Surface(
+                            onClick = { tick(); glyph = sym },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            border = if (active) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        ) {
+                            Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
+                                Text(sym, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+            }
         }
         SectionDesc(t("drawer.categoryGlyphDesc"))
     }
@@ -832,11 +981,22 @@ private fun TravelTab(vm: LedgerViewModel, s: LedgerState) {
                 onChange = { v -> vm.updatePrefs { p -> p.copy(travel = p.travel.copy(currency = v)) } },
             )
             FieldLabel(t("travel.rate"))
+            /* Edited through a local draft. The stored rate is a Double re-rendered by fmtRate()
+               on every recomposition, so binding the field straight to it reformats the text
+               mid-keystroke — and a second '.' parses to null, which used to zero the rate. The
+               draft is only re-synced when the rate changes from elsewhere: a currency change or
+               an automatic rate refresh. */
+            var rateDraft by remember { mutableStateOf(fmtRate(tr.rate)) }
+            LaunchedEffect(tr.rate) {
+                val typed = rateDraft.trim().toDoubleOrNull()
+                if (typed != null && kotlin.math.abs(typed - tr.rate) > 1e-9) rateDraft = fmtRate(tr.rate)
+            }
             AppTextField(
-                value = fmtRate(tr.rate),
+                value = rateDraft,
                 onChange = { v ->
-                    val n = v.filter { it.isDigit() || it == '.' }.toDoubleOrNull() ?: 0.0
-                    vm.updatePrefs { p -> p.copy(travel = p.travel.copy(rate = n)) }
+                    rateDraft = v
+                    val n = v.trim().toDoubleOrNull()
+                    if (n != null && n > 0.0) vm.updatePrefs { p -> p.copy(travel = p.travel.copy(rate = n)) }
                 },
                 placeholder = t("drawer.ratePlaceholder"),
                 mono = true, numeric = true,
@@ -946,6 +1106,9 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
         SectionTitle(t("sec.preferences"))
         ToggleRow(t("pref.compact"), t("pref.compactDesc"), s.prefs.compact) {
             vm.updatePrefs { p -> p.copy(compact = it) }
+        }
+        ToggleRow(t("drawer.leftHanded"), t("drawer.leftHandedDesc"), s.prefs.leftHanded) {
+            vm.updatePrefs { p -> p.copy(leftHanded = it) }
         }
         ToggleRow(
             t("pref.groupHistory"),
@@ -1172,7 +1335,6 @@ private fun PrefsTab(vm: LedgerViewModel, s: LedgerState) {
 
 @Composable
 private fun DrawerSheet(
-    onClose: () -> Unit,
     contentHeight: androidx.compose.ui.unit.Dp? = null,
     content: @Composable () -> Unit
 ) {
@@ -1181,17 +1343,6 @@ private fun DrawerSheet(
     // Solid panel — liquid glass was laggy when scrolling here, so the drawer stays opaque.
     val panelModifier = Modifier.background(cs.surface, shape)
     Box(Modifier.fillMaxSize()) {
-        // Dismiss scrim — tapping outside the panel closes the sheet.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.45f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClose,
-                )
-        )
         // Bottom panel — consumes its own taps (no-op) so the scrim can't dismiss it.
         Box(
             Modifier
@@ -1222,6 +1373,25 @@ private fun DrawerSheet(
             }
         }
     }
+}
+
+/**
+ * The dimmed backdrop behind a sheet. The caller draws it in its own layer, so it *fades* in
+ * place while the sheet itself slides up — drawn together they would sweep the dimming up the
+ * screen as a hard edge instead.
+ */
+@Composable
+fun DrawerScrim(onClose: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClose,
+            )
+    )
 }
 
 @Composable

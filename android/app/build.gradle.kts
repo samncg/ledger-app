@@ -14,8 +14,8 @@ android {
         applicationId = "com.ledger.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.1.6"
+        versionCode = 7
+        versionName = "0.1.7"
     }
 
     signingConfigs {
@@ -62,6 +62,14 @@ kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
+}
+
+/* Compose compiler diagnostics — stability of every class and skippability of every
+   composable. Written to app/build/compose_reports on each build; read those before
+   assuming a composable recomposes less than it does. */
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose_reports")
+    metricsDestination = layout.buildDirectory.dir("compose_reports")
 }
 
 dependencies {

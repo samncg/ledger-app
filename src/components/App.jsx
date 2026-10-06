@@ -469,12 +469,15 @@ export default function App(){
     let bal=null;
     if(balancesOn){
       bal=draftBalance.trim()===''?null:parseFloat(draftBalance);
-      if(bal!==null&&(!isFinite(bal)||bal<0)){showToast(t('toast.invalidBalance'),"error");return}
+      /* A negative balance is legitimate — overspends drain it — so only junk is rejected. */
+      if(bal!==null&&!isFinite(bal)){showToast(t('toast.invalidBalance'),"error");return}
     }
     persistSettings({monthlyBudget:budget,periodDays:days,startDate:draftStartDate||firstOfMonthKey()});
     if(!settings)persistPrefs({...prefs,currency:draftCurrency});
     if(balancesOn){
-      if(bal!==null)persistBalance({...balance,start:bal});
+      /* The field holds the live balance; the stored value is the balance at the start, so
+         shift that start by however far the user moved the live figure. */
+      if(bal!==null)persistBalance({...balance,start:(balance?.start||0)+(bal-bankBalance)});
       else if(!settings)persistBalance({...balance,start:0});
     }
     setShowSetup(false);
@@ -509,27 +512,31 @@ export default function App(){
   const todaySpent=spentByDay[today]||0;
   const todayRemaining=dailyBudget-todaySpent;
 
-  /* Bank balance = starting money, plus the leftover allowance banked at the end
-     of each day, minus money moved over to the monthly budget. Leftovers use the
-     allowance that was in effect on each day (top-ups dated after a day don't
-     retroactively change it), so returning money to the balance feels exact. */
-  const bankedSoFar=useMemo(()=>{
-    if(!settings)return 0;
-    let banked=0;
-    for(const c of dayCells){
-      if(c.isFuture)break;
-      // The allowance in effect on that day: top-ups dated after it don't
-      // retroactively rewrite what was already saved.
-      const topped=topUps.reduce((s,t)=>s+(t.date<=c.date?t.amount:0),0);
-      const allowance=(settings.monthlyBudget+topped)/settings.periodDays;
-      const left=allowance-c.spent;
+  /* Bank balance = starting money, plus each day's leftover allowance banked back at the end of
+     the day, minus each day's allowance taken out at the start of it, minus money moved over to
+     the monthly budget. Withdrawing the allowance at the start of the day and banking the leftover
+     back at the end leaves only what was actually spent gone, so the balance tracks the bank
+     account instead of gaining the budget out of nowhere. The window runs from the earliest logged
+     day (or the current period's start if that is older) through today, so a spend dated inside a
+     past month moves the balance like any other — and the balance no longer loses its history when
+     the period rolls over. Leftovers use the CURRENT net daily allowance (budget + all top-ups), so
+     "Saved to balance" always agrees with the "Daily allowance" figure above it — the Android
+     behaviour. */
+  const{bankedSoFar,daysCovered}=useMemo(()=>{
+    if(!settings)return{bankedSoFar:0,daysCovered:0};
+    let earliest=settings.startDate;
+    for(const e of expenses){if(e.date<earliest)earliest=e.date;}
+    let banked=0,days=0;
+    for(let d=earliest;d<=today;d=addDays(d,1)){
+      const left=dailyBudget-(spentByDay[d]||0);
       // Overspends either drain the bank balance (bank the negative leftover) or come
       // out of the total budget (bank only the positive leftover), per prefs.
       banked+=prefs.overspendFromBalance?left:Math.max(0,left);
+      days++;
     }
-    return banked;
-  },[settings,dayCells,topUps,prefs.overspendFromBalance]);
-  const bankBalance=useMemo(()=>(balance?.start||0)-topUpTotal+bankedSoFar,[balance,topUpTotal,bankedSoFar]);
+    return{bankedSoFar:banked,daysCovered:days};
+  },[settings,expenses,spentByDay,dailyBudget,today,prefs.overspendFromBalance]);
+  const bankBalance=useMemo(()=>(balance?.start||0)-daysCovered*dailyBudget-topUpTotal+bankedSoFar,[balance,daysCovered,dailyBudget,topUpTotal,bankedSoFar]);
   const todaySaved=Math.max(0,todayRemaining);
   const heroLabel=heroMode==='balance'?t('hero.labelBalance'):t('hero.labelAvailable');
   const heroValue=heroMode==='balance'?bankBalance:todayRemaining;
@@ -729,13 +736,13 @@ export default function App(){
     let changed=false;
     const next=rules.map(r=>{
       if(!r.active)return r;
-      const from=r.last?todayKey(advanceDate(r.last,r.freq)):(r.start||today);
+      const from=r.last?todayKey(advanceDate(r.last,r.freq,r.start)):(r.start||today);
       const cursor=new Date(from+"T00:00:00");
       const end=new Date(today+"T00:00:00");
       if(cursor>end)return r;
       const occ=[];
       let cur=cursor;
-      while(cur<=end){occ.push(todayKey(cur));cur=advanceDate(cur,r.freq)}
+      while(cur<=end){occ.push(todayKey(cur));cur=advanceDate(cur,r.freq,r.start)}
       for(const d of occ){
         if(r.type==='expense')ex.push({id:uid(),date:d,amount:r.amount,category:r.category||'other',categories:[r.category||'other'],note:r.note?`${r.note} (auto)`:""});
         else if(r.type==='budget')tu.push({id:uid(),amount:r.amount,date:d,note:r.note?`${r.note} (auto)`:""});
@@ -775,7 +782,7 @@ export default function App(){
   };
   const nextRun=r=>{
     if(!r.active)return t('card.auto.paused');
-    const from=r.last?todayKey(advanceDate(r.last,r.freq)):(r.start||today);
+    const from=r.last?todayKey(advanceDate(r.last,r.freq,r.start)):(r.start||today);
     const diff=dayDiff(today,from);
     if(diff<=0)return t('card.auto.dueToday');
     return diff===1?t('card.auto.tomorrow'):t('card.auto.inDays',{n:diff});
@@ -899,15 +906,21 @@ export default function App(){
     const avg=thisTotal/Math.max(1,dayN);
     const projected=avg*daysThis;
     const pct=lastTotal>0?((thisTotal-lastTotal)/lastTotal)*100:null;
+    /* Biggest category change: scanned over every category seen this month or last month, and
+       hidden entirely when nothing changed. Matches the Android implementation. */
     let biggest=null;
-    for(const c of cats){
-      const delta=(thisCat[c.id]||0)-(lastCat[c.id]||0);
-      if(!biggest||Math.abs(delta)>Math.abs(biggest.delta))biggest={cat:c,delta};
+    for(const id of new Set([...Object.keys(thisCat),...Object.keys(lastCat)])){
+      const delta=(thisCat[id]||0)-(lastCat[id]||0);
+      if(!biggest||Math.abs(delta)>Math.abs(biggest.delta)){
+        biggest={cat:cats.find(c=>c.id===id)||{id,label:id,glyph:'·'},delta};
+      }
     }
+    if(biggest&&biggest.delta===0)biggest=null;
+    /* Best and worst day: only over days that actually had a spend, so a day you skipped is
+       never reported as a RM 0.00 "best day". Matches the Android implementation. */
     let best=null,worst=null;
-    for(let i=0;i<dayN;i++){
-      const d=addDays(curStart,i);
-      const v=byDay[d]||0;
+    for(const d of Object.keys(byDay)){
+      const v=byDay[d];
       if(!worst||v>worst.amount)worst={date:d,amount:v};
       if(!best||v<best.amount)best={date:d,amount:v};
     }
@@ -1398,7 +1411,7 @@ export default function App(){
     {id:'add',title:t('palette.addExpense'),icon:I.Plus,kbd:'⌘N',run:()=>{document.querySelector('.amount-field')?.focus()}},
     {id:'theme',title:t('palette.openTheme'),icon:I.Palette,kbd:'⌘,',run:()=>{setDrawerTab('theme');setShowDrawer(true)}},
     {id:'catalog',title:t('palette.manageCategories'),icon:I.Wallet,run:()=>{setDrawerTab('cats');setShowDrawer(true)}},
-    {id:'budget',title:t('palette.editBudget'),icon:I.Settings,run:()=>{if(settings){setDraftBudget(String(settings.monthlyBudget));setDraftDays(String(settings.periodDays));setDraftStartDate(settings.startDate);setDraftBalance(String(balance?.start||0));setShowSetup(true)}}},
+    {id:'budget',title:t('palette.editBudget'),icon:I.Settings,run:()=>{if(settings){setDraftBudget(String(settings.monthlyBudget));setDraftDays(String(settings.periodDays));setDraftStartDate(settings.startDate);setDraftBalance(String(Math.round(bankBalance*100)/100));setShowSetup(true)}}},
     {id:'topup',title:balancesOn?t('palette.moveMoney'):t('palette.topUp'),icon:balancesOn?I.Wallet:I.Zap,run:()=>{if(settings){setMoveMode("budget");setShowTopUp(true)}}},
     {id:'darklight',title:isDark?t('palette.switchToLight'):t('palette.switchToDark'),icon:isDark?I.Sun:I.Moon,run:toggleLightDark},
     {id:'backup',title:t('palette.downloadBackup'),icon:I.Download,run:exportData},
@@ -1551,6 +1564,7 @@ export default function App(){
       startEdit={startEdit} duplicateExpense={duplicateExpense} removeExpense={removeExpense} removeTopUp={removeTopUp}
       onViewReceipt={setReceiptView}
       filterTags={filterTags} toggleFilterTag={toggleFilterTag} setFilterTags={setFilterTags} allTags={allTags}
+      edgeBlur={prefs.edgeBlur!==false}
     />,
     insights:<InsightsCard
       insights={monthInsights} MYR={MYR} today={today} relativeDate={relativeDate}
@@ -1586,6 +1600,7 @@ export default function App(){
       setDraftBudget={setDraftBudget} setDraftDays={setDraftDays} setDraftStartDate={setDraftStartDate}
       setDraftBalance={setDraftBalance} setShowSetup={setShowSetup} setMoveMode={setMoveMode}
       setShowTopUp={setShowTopUp} balancesOn={balancesOn} handleClearAll={handleClearAll} balance={balance}
+      bankBalance={bankBalance}
     />,
   };
 
@@ -1623,6 +1638,7 @@ export default function App(){
               projectedTotal={projectedTotal} projectedDelta={projectedDelta} budgetPctFull={budgetPctFull}
               periodSpent={periodSpent} dayCells={dayCells} theme={theme} today={today}
               relativeDate={relativeDate} elapsedDays={elapsedDays} bankedSoFar={bankedSoFar}
+              progressFrozen={showDrawer||showSetup||showTopUp||showCmd}
             />
             <div className="cards-stack">
               {cardOrder.map((id,idx)=>(

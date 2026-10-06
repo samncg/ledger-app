@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { I } from '../lib/icons';
-import { CURRENCIES, PRESETS, CAT_COLOR_PRESETS, HEAT_PRESETS, HEAT_DEFAULT_COLORS } from '../lib/constants';
+import { CURRENCIES, PRESETS, CAT_COLOR_PRESETS, CAT_GLYPH_PRESETS, HEAT_PRESETS, HEAT_DEFAULT_COLORS } from '../lib/constants';
 import { fmt, heatColorVal } from '../lib/helpers';
 import { LANGS, t } from '../lib/i18n';
 import { FIREBASE_CONFIGURED } from '../lib/firebase';
@@ -369,6 +369,12 @@ export default function CustomizeDrawer({
                   <input className="input" type="text" placeholder={t('drawer.cats.namePlaceholder')} value={newCatName} onChange={e=>setNewCatName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addCategory()} style={{flex:1}}/>
                   <input className="input mono" type="text" placeholder="★" value={newCatGlyph} onChange={e=>setNewCatGlyph(e.target.value)} style={{maxWidth:52,textAlign:'center'}}/>
                   <button className="btn btn-sm" onClick={addCategory}><I.Plus/></button>
+                </div>
+                <div className="field-label" style={{marginTop:10}}>{t('drawer.cats.symbols')}</div>
+                <div className="cat-glyph-grid">
+                  {CAT_GLYPH_PRESETS.map(sym=>(
+                    <button key={sym} type="button" className={`cat-glyph-swatch ${newCatGlyph===sym?'active':''}`} onClick={()=>setNewCatGlyph(sym)}>{sym}</button>
+                  ))}
                 </div>
                 <div className="section-desc" style={{marginTop:8}}>{t('drawer.cats.desc')}</div>
               </Section>

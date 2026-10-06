@@ -80,6 +80,7 @@ export default {
   'drawer.cats.title': 'Your categories',
   'drawer.cats.add': 'Add category',
   'drawer.cats.namePlaceholder': 'Name (e.g. Health)',
+  'drawer.cats.symbols': 'Symbols',
   'drawer.cats.desc': 'Use short symbols (◇ ★ ♥ ● ▲ ◐) for the icon.',
 
   /* Customize drawer — Prefs tab */
