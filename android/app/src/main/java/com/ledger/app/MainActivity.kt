@@ -45,8 +45,8 @@ import com.ledger.app.ui.LedgerTheme
 import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.autoWallpaperIsWhite
 import com.ledger.app.ui.components.GlassStyle
-import com.ledger.app.ui.components.LocalGlassBackdrop
 import com.ledger.app.ui.components.LocalGlassStyle
+import com.ledger.app.ui.components.LocalHazeState
 import com.ledger.app.ui.components.LedgerSplash
 import com.ledger.app.ui.parseColor
 import com.ledger.app.ui.screens.DashboardScreen
@@ -55,10 +55,9 @@ import com.ledger.app.ui.screens.SetupScreen
 import com.ledger.app.util.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.kashif_e.backdrop.Backdrop
-import com.kashif_e.backdrop.backdrops.LayerBackdrop
-import com.kashif_e.backdrop.backdrops.layerBackdrop
-import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 class MainActivity : ComponentActivity() {
 
@@ -141,7 +140,11 @@ class MainActivity : ComponentActivity() {
             }
 
             LedgerTheme(theme = state.theme, fontId = state.prefs.font) {
-                val glassBackdrop = rememberLayerBackdrop()
+                /* The Haze state the cards and glass screens sample: the wallpaper only. */
+                val wallHaze = rememberHazeState()
+                /* The Haze state the bars and bubbles sample: the whole scene, in paint order —
+                   the wallpaper, then the page, then the overlays. */
+                val sceneHaze = rememberHazeState()
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalGlassStyle provides GlassStyle(
                         enabled = state.prefs.glassEnabled,
@@ -157,7 +160,7 @@ class MainActivity : ComponentActivity() {
                         chromaticAberration = state.prefs.glassChromaticAmount / 100f,
                         innerOpacity = state.prefs.glassInnerOpacity
                     ),
-                    LocalGlassBackdrop provides glassBackdrop
+                    LocalHazeState provides wallHaze
                 ) {
                     Box(Modifier.fillMaxSize()) {
                         WallpaperBackdrop(
@@ -166,7 +169,8 @@ class MainActivity : ComponentActivity() {
                             wallBlur = state.prefs.wallBlur,
                             themeBg = state.theme.bg,
                             autoIsWhite = autoWallpaperIsWhite(state.theme, state.categories),
-                            backdrop = glassBackdrop
+                            wallHaze = wallHaze,
+                            sceneHaze = sceneHaze,
                         )
                         /* Nothing renders until the stored data has loaded, otherwise the
                            setup screen would flash before the real state arrives. */
@@ -174,7 +178,7 @@ class MainActivity : ComponentActivity() {
                             if (state.settings == null) {
                                 SetupScreen(vm, state)
                             } else {
-                                DashboardScreen(vm, state, initialShowLog = openLogInitially)
+                                DashboardScreen(vm, state, initialShowLog = openLogInitially, sceneHaze = sceneHaze)
                             }
                             if (appLockOn && !unlocked) {
                                 LockScreen(onUnlock = {
@@ -295,7 +299,10 @@ fun WallpaperBackdrop(
     themeBg: String,
     /* Which solid the "auto" wallpaper resolves to for the current theme. */
     autoIsWhite: Boolean = true,
-    backdrop: LayerBackdrop? = null,
+    /* Haze sources the wallpaper is captured into: cards sample [wallHaze], the bars sample
+       [sceneHaze] (which also carries the page and overlays, registered with a higher zIndex). */
+    wallHaze: HazeState? = null,
+    sceneHaze: HazeState? = null,
 ) {
     val bgColor = parseColor(themeBg) ?: Color.Black
     val dimAlpha = (wallpaperDim.coerceIn(0, 90) / 100f)
@@ -327,7 +334,8 @@ fun WallpaperBackdrop(
     Box(
         Modifier
             .fillMaxSize()
-            .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier)
+            .then(if (wallHaze != null) Modifier.hazeSource(wallHaze) else Modifier)
+            .then(if (sceneHaze != null) Modifier.hazeSource(sceneHaze, zIndex = 0f) else Modifier)
     ) {
         if (solid != null) {
             // A flat white / black wallpaper: one sheet, no photo and no dimming.

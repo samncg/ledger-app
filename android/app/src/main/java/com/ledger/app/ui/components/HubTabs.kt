@@ -39,20 +39,20 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kashif_e.backdrop.Backdrop
-import com.kashif_e.backdrop.drawBackdrop
-import com.kashif_e.backdrop.effects.blur
-import com.kashif_e.backdrop.effects.lens
-import com.kashif_e.backdrop.highlight.Highlight
-import com.kashif_e.backdrop.shadow.Shadow
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.glass.ChromaticAberrationMode
+import dev.chrisbanes.haze.glass.hazeGlass
+import dev.chrisbanes.haze.glass.GlassStyle as HazeGlassStyle
 import com.ledger.app.ui.HistoryEntry
 import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.LedgerViewModel
@@ -75,42 +75,51 @@ import com.ledger.app.util.fmt
    ═══════════════════════════════════════════ */
 
 /* ─── Shared liquid-glass recipe for the bottom bars ───
-   The pill, the bubbles and the nav bar are the same material: the backdrop bends through the
-   shape (refraction + optional dispersion) over a blur, with a faint light-projected rim.
-   Composable so the container tint can be read through state in the draw lambda — the backdrop
-   node's update path never invalidates its draw, so without that a theme toggle left the bar
-   on the previous theme's tint until something else redrew it. */
+   The pill, the bubbles and the nav bar are the same material: the captured scene bends through
+   the shape (refraction + optional dispersion) over a depth blur, with a specular rim and a lift.
+   Composable so the Haze Style is rebuilt only when one of its inputs actually changes. */
+@OptIn(ExperimentalHazeApi::class)
 @Composable
 internal fun Modifier.glassBar(
-    backdrop: Backdrop,
-    shape: Shape,
+    haze: HazeState,
+    shape: RoundedCornerShape,
     blurDp: Float,
     lensOn: Boolean,
     chromatic: Float,
     refraction: Float,
     refractionHeight: Float,
     containerColor: Color,
-    shadowRadius: Dp = 8.dp,
 ): Modifier {
-    val tint = rememberUpdatedState(containerColor)
-    return drawBackdrop(
-        backdrop = backdrop,
-        shape = { shape },
-        effects = {
-            blur(blurDp.dp.toPx())
-            if (lensOn) {
-                lens(
-                    (refractionHeight * (1f + chromatic * 0.5f)).dp.toPx(),
-                    (refraction * (1f + chromatic * 0.5f)).dp.toPx(),
-                    depthEffect = true,
-                    chromaticAberration = chromatic > 0f,
-                )
-            }
-        },
-        highlight = { Highlight.Default.copy(width = 0.75.dp, blurRadius = 3.dp, alpha = 0.30f) },
-        shadow = { Shadow(radius = shadowRadius, color = Color.Black.copy(alpha = 0.22f)) },
-        onDrawSurface = { drawRect(tint.value) },
-    )
+    val style = remember(shape, blurDp, lensOn, chromatic, refraction, refractionHeight, containerColor) {
+        HazeGlassStyle {
+            shape(shape)
+            tint(containerColor)
+            optics(
+                blurRadius = blurDp.coerceIn(0f, 40f).dp,
+                /* The slider's 0–40 range maps to Haze's refraction strength so the default (14)
+                   lands near Haze's own Regular material (~0.7) rather than a barely-there 0.35. */
+                refractionStrength = (if (lensOn) refraction / 20f else 0f).coerceIn(0.001f, 1f),
+                refractionHeightFraction = (refractionHeight / 100f).coerceIn(0.001f, 1f),
+                refractionDisplacement = (if (lensOn) refraction else 0f).dp,
+                depth = 0.5f,
+            )
+            chromaticAberrationStrength(((if (lensOn) chromatic else 0f) * 1.8f).coerceIn(0f, 1f))
+            chromaticAberrationMode(
+                if (lensOn && chromatic > 0.001f) ChromaticAberrationMode.Full
+                else ChromaticAberrationMode.Simple
+            )
+            /* A soft, broad specular shine — no tight highlight line and no dark rim, so it reads
+               as gloss rather than as a thin stroke inside the button. */
+            specularIntensity(0.4f)
+            ambientResponse(0.25f)
+            edgeShadow(Color.Transparent)
+            edgeSoftness(1.dp)
+        }
+    }
+    return this
+        /* A small lift only — enough to feel the buttons float, not the deep shadow the cards cast. */
+        .shadow(elevation = 4.dp, shape = shape, clip = false)
+        .hazeGlass(input = HazeInput.Sources(haze), style = style)
 }
 
 /* ─── Destinations ───
@@ -141,7 +150,7 @@ fun hubTopInset(): Dp =
 
 /** Everything the glass bars read from the shared style, resolved once per bar. */
 private class BarGlass(
-    val backdrop: Backdrop?,
+    val haze: HazeState?,
     val blurDp: Float,
     val lensOn: Boolean,
     val chromatic: Float,
@@ -154,11 +163,11 @@ private class BarGlass(
 )
 
 @Composable
-private fun rememberBarGlass(sceneBackdrop: Backdrop?): BarGlass {
+private fun rememberBarGlass(sceneHaze: HazeState?): BarGlass {
     val cs = MaterialTheme.colorScheme
     val glass = LocalGlassStyle.current
     return BarGlass(
-        backdrop = if (glass.barGlass) sceneBackdrop ?: LocalGlassBackdrop.current else null,
+        haze = if (glass.barGlass) sceneHaze ?: LocalHazeState.current else null,
         /* The bars and bubbles have their own blur, so tuning the cards doesn't drag them along. */
         blurDp = glass.barBlur.coerceIn(0, 24).toFloat(),
         /* They always refract: the bar's material should not depend on whether the cards have theirs on. */
@@ -172,10 +181,10 @@ private fun rememberBarGlass(sceneBackdrop: Backdrop?): BarGlass {
 }
 
 @Composable
-private fun Modifier.barGlass(g: BarGlass, shape: Shape): Modifier =
-    if (g.backdrop != null) {
+private fun Modifier.barGlass(g: BarGlass, shape: RoundedCornerShape): Modifier =
+    if (g.haze != null) {
         glassBar(
-            backdrop = g.backdrop,
+            haze = g.haze,
             shape = shape,
             blurDp = g.blurDp,
             lensOn = g.lensOn,
@@ -195,10 +204,10 @@ fun HubBottomBar(
     onSelectTab: (Int) -> Unit,
     onLogSpend: () -> Unit,
     leftHanded: Boolean = false,
-    sceneBackdrop: Backdrop? = null,
+    sceneHaze: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
-    val g = rememberBarGlass(sceneBackdrop)
+    val g = rememberBarGlass(sceneHaze)
     val pillShape = RoundedCornerShape(100.dp)
     val round = RoundedCornerShape(50)
     val barH = 58.dp
@@ -269,10 +278,10 @@ fun HubBottomBar(
 fun HubSettingsBubble(
     isBack: Boolean,
     onClick: () -> Unit,
-    sceneBackdrop: Backdrop? = null,
+    sceneHaze: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
-    val g = rememberBarGlass(sceneBackdrop)
+    val g = rememberBarGlass(sceneHaze)
     HubRoundBubble(
         icon = if (isBack) Icons.AutoMirrored.Outlined.ArrowBack else Icons.Outlined.Settings,
         label = if (isBack) t("app.close") else t("app.nav.settings"),
@@ -293,7 +302,7 @@ private fun HubRoundBubble(
     tint: Color,
     size: Dp,
     glass: BarGlass,
-    shape: Shape,
+    shape: RoundedCornerShape,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {

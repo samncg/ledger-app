@@ -168,14 +168,15 @@ data class Prefs(
     val glassScreens: Boolean = false,
     val glassScreensInside: Boolean = false,
     val glassBlur: Int = 0,
-    val glassOpacity: Int = 100,     // how solid the card material is (0 = clear, 100 = most solid)
-    val glassRefraction: Int = 14,
-    val glassRefractionHeight: Int = 14,
-    val glassChromaticAmount: Int = 50,
+    val glassOpacity: Int = 50,      // how solid the card material is (0 = clear, 100 = most solid)
+    val glassRefraction: Int = 40,
+    val glassRefractionHeight: Int = 20,
+    val glassChromaticAmount: Int = 100,
     val glassInnerOpacity: Int = 40, // opacity of the panels nested inside glass cards (0 = clear, 100 = solid)
     val glassBarBlur: Int = 0,       // blur for the UI glass that is not a card (bottom bar, bubbles)
     val glassBarOpacity: Int = 0,    // how solid that non-card glass is, set apart from the cards
     val glassBar: Boolean = true,    // liquid glass for the bottom bar and bubbles (cards have their own toggle)
+    val glassDefaultsRev: Int = 0,   // bumped when the liquid-glass defaults are refreshed, to migrate older stores
     val leftHanded: Boolean = false, // mirror the floating buttons to the left, for left-handed use
     val streakGrace: Int = 0,        // missed days forgiven inside a spend streak (0 = off)
     val edgeBlur: Boolean = true,    // progressive blur+fade at the top and bottom of the screen

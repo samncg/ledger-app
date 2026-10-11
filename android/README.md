@@ -15,9 +15,12 @@ as the web app so you can move freely between platforms.
    # APK at app/build/outputs/apk/debug/app-debug.apk
    ```
 
-Requirements: **JDK 17+**, Android SDK (API 35), and **Kotlin 2.3.0**.
-The full liquid-glass shaders (blur / refraction / vibrancy / chromatic aberration)
-require **Android API 33+** (AGSL); on API 26–32 the glass gracefully degrades to a
+Requirements: **JDK 17+**, Android SDK (API 37), **AGP 9.4.1**, **Kotlin 2.4.21**
+and **Jetpack Compose 2026.09** (AGP 9 has built-in Kotlin, so the separate
+Kotlin-Android plugin is not applied).
+The liquid glass and blur come from [Haze 2](https://github.com/chrisbanes/haze)
+(`haze` + `haze-blur` + `haze-glass`). The full glass optics (refraction / chromatic
+dispersion) need **Android 13+ (API 33)**; on older devices Haze falls back to a
 basic blur.
 
 ## What's ported
@@ -39,7 +42,7 @@ Everything that matters for budgeting, ported 1:1 from the web app's logic:
 - Data & backup: JSON backup (web-compatible format), CSV export, restore
 - Cloud sync: Firebase Firestore + Google Sign-In synchronization across web and Android apps
 - Wallpaper: Custom photo backdrop with adjustable background dimming and blur intensity
-- Liquid glass: shader-backed glass on the bottom navigation pill (History · Log spend · Settings) with a sliding switch thumb and spring animation; opt-in frosted-glass cards. Blur, transparency, refraction amount/height and chromatic aberration are adjustable in Settings → Theme
+- Liquid glass: Haze-2-backed glass on the four-tab bottom bar and its Log/Settings bubbles, with opt-in frosted-glass cards; it captures the wallpaper, the page and the overlays as ordered Haze sources so the bars refract what is actually behind them. Blur, transparency, refraction amount/height and chromatic aberration are adjustable in Settings → Theme (Android 13+ for the full optics)
 - Notifications & Reminders: Daily evening log-spend reminders (custom time + toggle in settings) and budget allowance alerts
 - 10 theme presets, full color customization, heatmap palettes, font choice,
   compact density, card reordering, light/dark toggle

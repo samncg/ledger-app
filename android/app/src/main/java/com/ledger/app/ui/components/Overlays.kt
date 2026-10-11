@@ -365,6 +365,12 @@ fun MoneyDrawer(vm: LedgerViewModel, s: LedgerState, mode: String, setMode: (Str
 fun SettingsScreen(vm: LedgerViewModel, s: LedgerState) {
     var tab by remember { mutableStateOf("theme") }
     val cs = MaterialTheme.colorScheme
+    /* With the frosted (liquid-glass) screens on, an opaque theme-coloured band floating over the
+       frost reads as an awkward rectangle with a fade under it. So while that mode is on, the
+       pinned tab row becomes a solid black (dark) / white (light) bar and drops the fade below. */
+    val frosted = s.prefs.glassScreens
+    val bandColor =
+        if (frosted) (if (vm.isDark(s.theme)) Color.Black else Color.White) else cs.background
     GlassScreenBackground {
         Column(
             Modifier
@@ -380,30 +386,33 @@ fun SettingsScreen(vm: LedgerViewModel, s: LedgerState) {
             ) {
                 stickyHeader {
                     /* The row itself stays opaque so the settings scrolling underneath don't show
-                       through it, and a short gradient beneath it carries that content out to
-                       nothing — the same fade the screen edges use — instead of cutting it at a
-                       hard seam that slides up under the tabs. */
+                       through it, and (normally) a short gradient beneath it carries that content
+                       out to nothing — the same fade the screen edges use — instead of cutting it
+                       at a hard seam that slides up under the tabs. In frosted mode the fade is
+                       dropped for a clean solid bar instead. */
                     Column(Modifier.fillMaxWidth()) {
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .background(cs.background)
+                                .background(bandColor)
                                 .padding(vertical = 6.dp)
                         ) {
                             Column(Modifier.padding(horizontal = 18.dp)) {
                                 SettingsTabs(tab) { tab = it }
                             }
                         }
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(16.dp)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(cs.background, cs.background.copy(alpha = 0f))
+                        if (!frosted) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(16.dp)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(cs.background, cs.background.copy(alpha = 0f))
+                                        )
                                     )
-                                )
-                        )
+                            )
+                        }
                     }
                 }
                 item {

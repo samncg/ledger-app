@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.google.services)
@@ -8,14 +7,14 @@ plugins {
 
 android {
     namespace = "com.ledger.app"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.ledger.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 7
-        versionName = "0.1.7"
+        targetSdk = 36
+        versionCode = 8
+        versionName = "0.1.8"
     }
 
     signingConfigs {
@@ -91,7 +90,12 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.play.services.auth)
-    implementation(libs.backdrop)
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.work.runtime.ktx)
+
+    implementation(libs.haze)
+    implementation(libs.haze.blur)
+    implementation(libs.haze.glass)
+    implementation(libs.haze.blur.materials)
+    implementation(libs.haze.glass.material3)
 }

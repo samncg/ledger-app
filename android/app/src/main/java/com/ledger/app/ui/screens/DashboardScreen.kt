@@ -1,36 +1,33 @@
 package com.ledger.app.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.kashif_e.backdrop.backdrops.emptyBackdrop
-import com.kashif_e.backdrop.backdrops.layerBackdrop
-import com.kashif_e.backdrop.backdrops.rememberCombinedBackdrop
-import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import com.ledger.app.ui.LedgerState
 import com.ledger.app.ui.LedgerViewModel
 import com.ledger.app.ui.components.BudgetDrawer
@@ -39,10 +36,10 @@ import com.ledger.app.ui.components.DrawerScrim
 import com.ledger.app.ui.components.HUB_BUDGET
 import com.ledger.app.ui.components.HUB_TODAY
 import com.ledger.app.ui.components.HUB_SPENDING
+import com.ledger.app.ui.components.HUB_TAB_COUNT
 import com.ledger.app.ui.components.HubBottomBar
 import com.ledger.app.ui.components.HubSettingsBubble
 import com.ledger.app.ui.components.HubTabBody
-import com.ledger.app.ui.components.LocalGlassBackdrop
 import com.ledger.app.ui.components.MoneyDrawer
 import com.ledger.app.ui.components.ScreenEdgeBlur
 import com.ledger.app.ui.components.SettingsScreen
@@ -50,6 +47,7 @@ import com.ledger.app.ui.components.ToastOverlay
 import com.ledger.app.ui.components.hubTopInset
 import com.ledger.app.ui.components.progressiveEdgeBlurSupported
 import com.ledger.app.ui.parseColor
+import kotlinx.coroutines.launch
 
 /* ═══════════════════════════════════════════
    DASHBOARD — the tabbed hub: Today · Spending · Budget · History,
@@ -57,7 +55,13 @@ import com.ledger.app.ui.parseColor
    ═══════════════════════════════════════════ */
 
 @Composable
-fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean = false) {
+fun DashboardScreen(
+    vm: LedgerViewModel,
+    s: LedgerState,
+    initialShowLog: Boolean = false,
+    /* The Haze state the bars sample — the whole scene: wallpaper, page then overlays. */
+    sceneHaze: HazeState? = null,
+) {
     val cs = MaterialTheme.colorScheme
 
     var showMoney by remember { mutableStateOf(false) }
@@ -70,7 +74,34 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
     val todayList = rememberLazyListState()
     val spendingList = rememberLazyListState()
     val budgetList = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(initialPage = HUB_TODAY) { HUB_TAB_COUNT }
+    /* The tab highlight is its own state so a press brightens the icon the instant it lands.
+       During a swipe the pager drives it, so the highlight tracks the finger; during a
+       programmatic tab slide the pager passes through the pages it crosses, so those are ignored
+       via [tabDriven] (the press already set the highlight). */
     var activeTab by remember { mutableStateOf(HUB_TODAY) }
+    var tabDriven by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            if (!tabDriven && page != activeTab) activeTab = page
+        }
+    }
+
+    /* Slide the pager to a tab, flagging it so the highlight isn't dragged through the pages the
+       slide passes over. The flag is cleared in `finally`, so a swipe that interrupts the slide
+       takes the highlight over cleanly. */
+    fun goToTab(tab: Int) {
+        activeTab = tab
+        tabDriven = true
+        scope.launch {
+            try {
+                pagerState.animateScrollToPage(tab)
+            } finally {
+                tabDriven = false
+            }
+        }
+    }
     /* True while any screen or drawer is up. The Settings bubble becomes a back arrow and the
        glass refracts what is actually behind it. */
     val anyOverlayOpen = showLog || showCustomize || showBudget || showMoney
@@ -86,7 +117,7 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
             showBudget = false
             showMoney = false
         } else {
-            activeTab = HUB_TODAY
+            goToTab(HUB_TODAY)
         }
     }
 
@@ -95,19 +126,23 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
         if (s.travelActive && s.travel.rateAuto) vm.refreshTravelRate(auto = true)
     }
 
-    /* The pages are captured into this layer so the top/bottom edges can be blurred over them. */
-    val contentBackdrop = rememberLayerBackdrop()
-    /* Everything drawn above the page and below the bar — the Settings and Log screens, the
-       drawers, toasts — is captured here too, so the bar's glass bends whatever it actually
-       covers rather than only the wallpaper. */
-    val overlayBackdrop = rememberLayerBackdrop()
-    val bottomBlur = 72.dp
-    /* The scene behind the bar, in paint order: the wallpaper, then the page, then the overlays. */
-    val sceneBackdrop = rememberCombinedBackdrop(
-        LocalGlassBackdrop.current ?: emptyBackdrop(),
-        contentBackdrop,
-        overlayBackdrop,
-    )
+    val bottomFade = 152.dp
+    /* The (costlier) blur stays in the shorter band nearest the edge; only the colour fade
+       reaches higher, so the darkening reads as a gradient above the floating pill. */
+    val bottomBlurBand = 72.dp
+    /* A full-screen view (Log a spend / Settings) covers the page entirely, so the page source
+       is dropped while one is open — that removes a whole full-screen capture per frame, which is
+       what made scrolling the glass Log screen stutter. The bar then samples the overlay it
+       actually sits on. */
+    val fullScreenOpen = showLog || showCustomize
+    /* The page and overlays are captured as Haze sources so the bars (and the edge blur) sample
+       the scene actually behind them, not just the wallpaper. Only registered when something
+       reads them, so a plain solid-UI setup pays nothing for the capture. */
+    val sceneSources = progressiveEdgeBlurSupported && (s.prefs.edgeBlur || pillGlass) && !fullScreenOpen
+    val pageSource =
+        if (sceneSources && sceneHaze != null) Modifier.hazeSource(sceneHaze, zIndex = 1f) else Modifier
+    val overlaySource =
+        if (pillGlass && sceneHaze != null) Modifier.hazeSource(sceneHaze, zIndex = 2f) else Modifier
 
     Box(Modifier.fillMaxSize()) {
         /* One full-height page per destination. The pages are full-bleed, so their cards scroll
@@ -115,27 +150,23 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
         Box(
             Modifier
                 .fillMaxSize()
-                .then(
-                    if (progressiveEdgeBlurSupported && (s.prefs.edgeBlur || pillGlass))
-                        Modifier.layerBackdrop(contentBackdrop)
-                    else Modifier
-                )
+                .then(pageSource)
         ) {
-            AnimatedContent(
-                targetState = activeTab,
-                transitionSpec = {
-                    /* Slide in the direction of travel while fading across — no bounce. */
-                    val dir = if (targetState > initialState) 1 else -1
-                    (slideInHorizontally { full -> dir * full / 5 } + fadeIn(tween(200))) togetherWith
-                            (slideOutHorizontally { full -> -dir * full / 5 } + fadeOut(tween(160)))
-                },
-                label = "hub-page",
-            ) { tab ->
+            /* A pager instead of AnimatedContent. It keeps the neighbouring page composed, so the
+               incoming destination is already built when you switch — the slide costs nothing in
+               composition and stays smooth on slower devices. Swiping the pages drives the tab
+               directly through [pagerState]. */
+            HorizontalPager(
+                state = pagerState,
+                beyondViewportPageCount = 1,
+                userScrollEnabled = true,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
                 HubTabBody(
-                    tab = tab,
+                    tab = page,
                     vm = vm,
                     s = s,
-                    listState = when (tab) {
+                    listState = when (page) {
                         HUB_SPENDING -> spendingList
                         HUB_BUDGET -> budgetList
                         else -> todayList
@@ -155,14 +186,16 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
         /* ── Progressive blur over the page edges — after the page, before the bar ──
            Switched off entirely from Theme → Glass for users who prefer a clean edge. */
         if (s.prefs.edgeBlur) {
-            /* The bottom band is 72dp — the space the floating bar sits over. The top band is the
-               status-bar inset plus the page's own clearance, since it also serves as that page's
-               top padding. Keeping both short leaves a minimum of the page under a blur that trails
-               the sharp content by a frame, which is what reads as a flicker. */
+            /* The bottom fade is tall — the space the floating bar sits over — so the darkening
+               contrasts against the pill. The top band is the status-bar inset plus the page's own
+               clearance, since it also serves as that page's top padding. Keeping the *blur* short
+               leaves a minimum of the page under a blur that trails the sharp content by a frame,
+               which is what reads as a flicker. */
             ScreenEdgeBlur(
-                backdrop = contentBackdrop,
+                hazeState = if (sceneSources) sceneHaze else null,
                 topHeight = hubTopInset(),
-                bottomHeight = bottomBlur,
+                bottomHeight = bottomFade,
+                blurHeight = bottomBlurBand,
             )
         }
 
@@ -172,10 +205,7 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
         Box(
             Modifier
                 .fillMaxSize()
-                .then(
-                    if (progressiveEdgeBlurSupported) Modifier.layerBackdrop(overlayBackdrop)
-                    else Modifier
-                )
+                .then(overlaySource)
         ) {
             ToastOverlay(
                 toast = vm.toast,
@@ -240,7 +270,7 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
         HubSettingsBubble(
             isBack = anyOverlayOpen,
             onClick = { if (anyOverlayOpen) closeAll() else showCustomize = true },
-            sceneBackdrop = sceneBackdrop,
+            sceneHaze = sceneHaze,
             modifier = Modifier
                 /* Left-handed mode swaps the corner the bubble floats in. */
                 .align(if (leftHanded) Alignment.TopStart else Alignment.TopEnd)
@@ -255,11 +285,11 @@ fun DashboardScreen(vm: LedgerViewModel, s: LedgerState, initialShowLog: Boolean
             onSelectTab = { tab ->
                 /* Switching destination leaves any open screen or drawer behind. */
                 closeAll()
-                activeTab = tab
+                goToTab(tab)
             },
             onLogSpend = { showLog = true },
             leftHanded = leftHanded,
-            sceneBackdrop = sceneBackdrop,
+            sceneHaze = sceneHaze,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()

@@ -93,10 +93,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kashif_e.backdrop.BackdropEffectScope
-import com.kashif_e.backdrop.backdrops.LayerBackdrop
-import com.kashif_e.backdrop.drawPlainBackdrop
-import com.kashif_e.backdrop.effects.progressiveBlur
+import androidx.compose.animation.core.EaseInOutSine
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.hazeBlur
 import com.ledger.app.ui.parseColor
 import com.ledger.app.ui.t
 import com.ledger.app.util.dateKeyFromMillis
@@ -944,20 +946,20 @@ fun EmptyState(glyph: String, title: String, sub: String) {
  * scrolling, so those devices are better off with the fade on its own.
  */
 val progressiveEdgeBlurSupported: Boolean =
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 /**
  * Blurs *and* fades the top and bottom edges of the scrolling content, so cards dissolve
  * into the background instead of hard-clipping at the viewport edge.
  *
- * The blur is a real gaussian blur: [backdrop] should be the [LayerBackdrop] the scrolling
- * content was captured into with `Modifier.layerBackdrop`. `progressiveBlur` masks it so it
- * is strongest at the screen edge and fades to nothing further in, and a matching colour
- * fade is layered on top so the edge also dissolves into the background. Pass no [backdrop]
- * to skip the blur entirely and draw the colour fade alone.
+ * The blur is a real gaussian blur: [hazeState] should be the Haze state the scrolling content
+ * was captured into with `Modifier.hazeSource`. Haze's progressive mask makes it strongest at
+ * the screen edge and fading to nothing further in, and a matching colour fade is layered on top
+ * so the edge also dissolves into the background. Pass no [hazeState] to skip the blur entirely
+ * and draw the colour fade alone.
  *
  * The colour fade is also what keeps the edge from flickering: the blurred band samples a
- * copy of the list that is re-recorded every frame, so on a fast scroll it can lag the sharp
+ * copy of the list that is re-captured every frame, so on a fast scroll it can lag the sharp
  * cards by a frame — and that lag is most visible exactly where the fade is most opaque.
  *
  * Where [progressiveEdgeBlurSupported] is false the fade is drawn alone (no blur), so those
@@ -973,7 +975,7 @@ fun BoxScope.ScreenEdgeBlur(
        the History list does this, because blurring the list samples the rows themselves and
        smears them into dark blobs instead of dissolving them, and a pure surface fade (which
        is also what the web draws) reads clean. */
-    backdrop: LayerBackdrop? = null,
+    hazeState: HazeState? = null,
     topHeight: Dp,
     bottomHeight: Dp,
     radius: Dp = 24.dp,
@@ -982,40 +984,44 @@ fun BoxScope.ScreenEdgeBlur(
        surface when the blur wraps a list that lives inside a card. */
     fadeColor: Color = MaterialTheme.colorScheme.background,
     /* Optional cap on how far in the *blur* reaches; the fade still spans the full height.
-       The blur is almost the whole cost of this composable — it re-records the content into a
-       layer and runs a RenderEffect over it every frame — and past the first few dp the fade is
+       The blur is almost the whole cost of this composable — it re-captures the content into a
+       layer and runs a render effect over it every frame — and past the first few dp the fade is
        opaque enough that sharp content is indistinguishable from blurred. null = same band as
        the fade, which is the original behaviour. */
     blurHeight: Dp? = null,
 ) {
     val bg = fadeColor
-    val blurPx = with(LocalDensity.current) { radius.toPx() }
-    // Remembered so the render effects are re-applied only when the radius changes,
-    // rather than on every recomposition.
-    val topEffects: BackdropEffectScope.() -> Unit =
-        remember(blurPx) { { progressiveBlur(blurRadius = blurPx, fadeStart = 1f, fadeEnd = 0f) } }
-    val bottomEffects: BackdropEffectScope.() -> Unit =
-        remember(blurPx) { { progressiveBlur(blurRadius = blurPx, fadeStart = 0f, fadeEnd = 1f) } }
     val topBlurHeight = (blurHeight ?: topHeight).coerceAtMost(topHeight)
     val bottomBlurHeight = (blurHeight ?: bottomHeight).coerceAtMost(bottomHeight)
-    /* Blur only when a layer was captured and the device can render it; otherwise this is a pure
-       fade, so a caller that wants no blur simply passes no backdrop. */
-    val blurBackdrop = if (progressiveEdgeBlurSupported) backdrop else null
+    /* Blur only when a source was captured and the device can render it; otherwise this is a pure
+       fade, so a caller that wants no blur simply passes no haze state. */
+    val blurState = if (progressiveEdgeBlurSupported) hazeState else null
+    val blurRadius = radius.coerceIn(0.dp, 100.dp)
 
     /* Top — fully blurred and faded at the very top, sharp and clear at topHeight. The blurred
        band is drawn first, with the colour fade layered over it. */
-    if (blurBackdrop != null) {
-        val bd = blurBackdrop
+    if (blurState != null) {
+        val topStyle = remember(blurRadius, topBlurHeight) {
+            HazeBlurStyle {
+                blurRadius(blurRadius)
+                progressive(
+                    /* EaseInOutSine has a zero slope at both ends, so the blur eases in from the
+                       sharp content instead of meeting it at a hard line — the seam is the
+                       derivative jump a linear gradient leaves. */
+                    HazeProgressive.verticalGradient(
+                        easing = EaseInOutSine,
+                        startIntensity = 1f,
+                        endIntensity = 0f,
+                    ),
+                )
+            }
+        }
         Box(
             Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .height(topBlurHeight)
-                .drawPlainBackdrop(
-                    backdrop = bd,
-                    shape = { RectangleShape },
-                    effects = topEffects,
-                )
+                .hazeBlur(input = HazeInput.Sources(blurState), style = topStyle)
         )
     }
     Box(
@@ -1033,18 +1039,25 @@ fun BoxScope.ScreenEdgeBlur(
     )
 
     /* Bottom — sharp and clear at the top of the band, blurred and faded at the screen edge. */
-    if (blurBackdrop != null) {
-        val bd = blurBackdrop
+    if (blurState != null) {
+        val bottomStyle = remember(blurRadius, bottomBlurHeight) {
+            HazeBlurStyle {
+                blurRadius(blurRadius)
+                progressive(
+                    HazeProgressive.verticalGradient(
+                        easing = EaseInOutSine,
+                        startIntensity = 0f,
+                        endIntensity = 1f,
+                    ),
+                )
+            }
+        }
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .height(bottomBlurHeight)
-                .drawPlainBackdrop(
-                    backdrop = bd,
-                    shape = { RectangleShape },
-                    effects = bottomEffects,
-                )
+                .hazeBlur(input = HazeInput.Sources(blurState), style = bottomStyle)
         )
     }
     Box(

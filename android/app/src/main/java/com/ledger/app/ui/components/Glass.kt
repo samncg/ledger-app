@@ -8,36 +8,33 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
-import com.kashif_e.backdrop.Backdrop
-import com.kashif_e.backdrop.drawBackdrop
-import com.kashif_e.backdrop.drawPlainBackdrop
-import com.kashif_e.backdrop.effects.blur
-import com.kashif_e.backdrop.effects.lens
-import com.kashif_e.backdrop.effects.vibrancy
-import com.kashif_e.backdrop.highlight.Highlight
-import com.kashif_e.backdrop.shadow.Shadow
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazePerformanceMode
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.hazeBlur
+import dev.chrisbanes.haze.glass.ChromaticAberrationMode
+import dev.chrisbanes.haze.glass.hazeGlass
+import dev.chrisbanes.haze.glass.GlassStyle as HazeGlassStyle
 
 /* ═══════════════════════════════════════════
-   LIQUID GLASS — shader-backed glass helpers
-   Uses the KMP Liquid Glass `drawBackdrop` (AGSL
-   refraction + blur + vibrancy) over a captured
-   backdrop layer provided at the app root.
+   LIQUID GLASS — Haze-backed glass helpers
+   Uses Haze 2 (`haze-glass`) for refraction +
+   depth blur + dispersion + lift over a captured
+   source layer provided at the app root.
    ═══════════════════════════════════════════ */
 
 data class GlassStyle(
@@ -73,59 +70,87 @@ fun innerSurfaceColor(): Color {
 /** App-wide glass settings, provided once at the root so every card reads them. */
 val LocalGlassStyle = staticCompositionLocalOf { GlassStyle() }
 
-/** The captured backdrop (wallpaper / background) that glass elements sample. */
-val LocalGlassBackdrop = staticCompositionLocalOf<Backdrop?> { null }
+/** The Haze state capturing the wallpaper/background that glass elements sample. */
+val LocalHazeState = staticCompositionLocalOf<HazeState?> { null }
 
+/**
+ * Rendering budget for the glass effects in this subtree. Defaults to Haze's own `Default`
+ * (Balanced) profile; the full-screen glass views drop to `Performance` because inner glass
+ * over a whole scrolling screen is where the cost actually bites.
+ */
+val LocalGlassPerformance = staticCompositionLocalOf { HazePerformanceMode.Default }
+
+/** How far the glass elements float above the content, i.e. the drop shadow they cast. */
+internal val GlassLift = 6.dp
+
+/**
+ * Translate the app's [GlassStyle] settings into an immutable Haze [HazeGlassStyle].
+ *
+ * Haze validates its optics when the Style is created, so every value is clamped to a
+ * conservative range first — a bad value here would otherwise throw and take the app down.
+ */
+@OptIn(ExperimentalHazeApi::class)
+@Composable
+internal fun rememberHazeGlassStyle(
+    style: GlassStyle,
+    shape: RoundedCornerShape,
+    containerColor: Color,
+    /* The card tint is kept faint so the refraction carries the look; the bars use their own. */
+    tintScale: Float = 0.35f,
+    blurOverride: Int? = null,
+    refractionOverride: Float? = null,
+    refractionHeightOverride: Float? = null,
+): HazeGlassStyle {
+    val blurDp = (blurOverride ?: style.blur).coerceIn(0, 40).toFloat()
+    val refraction = (refractionOverride ?: style.refraction.toFloat()).coerceIn(0f, 40f)
+    val height = (refractionHeightOverride ?: style.refractionHeight.toFloat()).coerceIn(0f, 40f)
+    val chroma = style.chromaticAberration.coerceIn(0f, 1f)
+    val alpha = (style.opacity.coerceIn(20, 100) / 100f) * tintScale
+    return remember(shape, containerColor, blurDp, refraction, height, chroma, alpha) {
+        HazeGlassStyle {
+            shape(shape)
+            tint(containerColor.copy(alpha = alpha.coerceIn(0f, 1f)))
+            optics(
+                blurRadius = blurDp.dp,
+                refractionStrength = (refraction / 20f).coerceIn(0.001f, 1f),
+                refractionHeightFraction = (height / 100f).coerceIn(0.001f, 1f),
+                refractionDisplacement = refraction.dp,
+                depth = 0.5f,
+            )
+            chromaticAberrationStrength((chroma * 1.8f).coerceIn(0f, 1f))
+            chromaticAberrationMode(
+                if (chroma > 0.001f) ChromaticAberrationMode.Full else ChromaticAberrationMode.Simple
+            )
+            specularIntensity(0.5f)
+            ambientResponse(0.2f)
+            /* The dark shape-following rim that gives the glass its edge — the "lift". */
+            edgeShadow(Color.Black.copy(alpha = 0.16f))
+            edgeSoftness(1.dp)
+        }
+    }
+}
+
+@OptIn(ExperimentalHazeApi::class)
 @Composable
 fun GlassSurface(
     style: GlassStyle,
     baseColor: Color,
     accentColor: Color,
-    shape: Shape = RoundedCornerShape(18.dp),
+    shape: RoundedCornerShape = RoundedCornerShape(18.dp),
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val backdrop = LocalGlassBackdrop.current
-    val alpha = (style.opacity.coerceIn(20, 100)) / 100f
-    val blurRadius = style.blur.coerceIn(0, 24)
-    val refraction = style.refraction.coerceIn(0, 40).toFloat()
-    val refractionHeight = style.refractionHeight.coerceIn(0, 40).toFloat()
-    val chromatic = style.chromaticAberration.coerceIn(0f, 1f)
+    val haze = LocalHazeState.current
+    val glassStyle = rememberHazeGlassStyle(style, shape, baseColor)
 
-    /* The backdrop node's update path swaps its lambdas without invalidating its draw, so a
-       theme-only change (new surface tint, new wallpaper behind the glass) left the old frame
-       up until something else happened to redraw it — the card stayed on the previous theme.
-       Reading the tint through state inside the draw lambda lets Compose's draw-phase
-       observation invalidate the glass the moment the theme changes. */
-    val tint = rememberUpdatedState(baseColor)
-
-    val glassModifier = if (backdrop != null && style.enabled) {
+    val glassModifier = if (haze != null && style.enabled) {
         Modifier
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    vibrancy()
-                    blur(blurRadius.dp.toPx())
-                    lens(
-                        (refractionHeight * (1f + chromatic * 0.5f)).dp.toPx(),
-                        (refraction * (1f + chromatic * 0.5f)).dp.toPx(),
-                        depthEffect = true,
-                        chromaticAberration = chromatic > 0f
-                    )
-                },
-                /* A faint, soft rim rather than a drawn border. The highlight shader projects the
-                   shape's own distance-field gradient onto a light angle, so the edge catches the
-                   light unevenly instead of lighting up as a uniform line — the refracting brim
-                   Apple's Liquid Glass has — and it is composited additively through a blur at a
-                   low alpha, so it reads as glass catching light rather than as a stroke. */
-                highlight = {
-                    Highlight.Default.copy(width = 0.75.dp, blurRadius = 3.dp, alpha = 0.30f)
-                },
-                shadow = { Shadow(radius = 6.dp, color = Color.Black.copy(alpha = 0.16f)) },
-                onDrawSurface = {
-                    drawRect(tint.value.copy(alpha = alpha * 0.35f))
-                }
+            /* A soft drop shadow under the glass reads as the card floating above the page. */
+            .shadow(elevation = GlassLift, shape = shape, clip = false)
+            .hazeGlass(
+                input = HazeInput.Sources(haze),
+                style = glassStyle,
+                performanceMode = LocalGlassPerformance.current,
             )
             .clip(shape)
     } else {
@@ -146,36 +171,38 @@ Two modes when "Liquid glass screens" is on:
 - backdrop (default): the screen gets a light frosted blur; inner cards stay solid.
 - inside: the screen is a flat light background and the inner cards become liquid glass.
 Uses the safe blur-only recipe on the full-screen backdrop (no refraction shader). */
+@OptIn(ExperimentalHazeApi::class)
 @Composable
 fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
     val cs = MaterialTheme.colorScheme
     val glass = LocalGlassStyle.current
-    val backdrop = LocalGlassBackdrop.current
+    val haze = LocalHazeState.current
     val insideGlass = glass.insideGlass
 
-    if (glass.screensGlass && backdrop != null && !insideGlass) {
+    if (glass.screensGlass && haze != null && !insideGlass) {
         // BACKDROP mode: light frosted blur over the wallpaper, cards stay solid.
-        val blurRadius = glass.blur.coerceIn(4, 24)
+        val blurRadius = glass.blur.coerceIn(4, 40)
         // Light, translucent tint — keeps the screen airy instead of dark.
         val tintAlpha = 0.12f + (glass.opacity.coerceIn(20, 100) / 100f) * 0.22f
-        /* Same as GlassSurface: read the theme tint through state so the draw re-runs on a
-           theme toggle instead of keeping the previous theme's wash. */
-        val bgTint = rememberUpdatedState(cs.background)
+        val blurStyle = remember(blurRadius) {
+            HazeBlurStyle { blurRadius(blurRadius.dp) }
+        }
         Box(
             Modifier
                 .fillMaxSize()
-                .drawPlainBackdrop(
-                    backdrop = backdrop,
-                    shape = { RectangleShape },
-                    effects = {
-                        blur(blurRadius.dp.toPx())
-                    },
-                    onDrawSurface = {
-                        drawRect(Color.White.copy(alpha = 0.10f))
-                        drawRect(bgTint.value.copy(alpha = tintAlpha))
-                    }
+                .hazeBlur(
+                    input = HazeInput.Sources(haze),
+                    style = blurStyle,
+                    performanceMode = HazePerformanceMode.Performance,
                 ),
         ) {
+            /* The frosted wash, drawn under the screen's own content. */
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = 0.10f))
+                    .background(cs.background.copy(alpha = tintAlpha))
+            )
             CompositionLocalProvider(LocalGlassStyle provides GlassStyle()) { content() }
         }
     } else {
@@ -184,7 +211,7 @@ fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
                 .fillMaxSize()
                 .background(cs.background)
         ) {
-            if (glass.insideGlass && glass.screensGlass && backdrop != null) {
+            if (glass.insideGlass && glass.screensGlass && haze != null) {
                 // INSIDE mode: flat bg + the inner cards become liquid glass.
                 CompositionLocalProvider(
                     LocalGlassStyle provides GlassStyle(
@@ -195,7 +222,10 @@ fun GlassScreenBackground(content: @Composable BoxScope.() -> Unit) {
                         refractionHeight = glass.refractionHeight,
                         chromaticAberration = glass.chromaticAberration,
                         innerOpacity = glass.innerOpacity,
-                    )
+                    ),
+                    /* A full screen of inner glass is the heavy case, so render it at the cheaper
+                       budget — this is what stops the Log a spend screen stuttering on scroll. */
+                    LocalGlassPerformance provides HazePerformanceMode.Performance,
                 ) { content() }
             } else {
                 CompositionLocalProvider(LocalGlassStyle provides GlassStyle()) { content() }

@@ -314,6 +314,26 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
         }
     }
 
+    /**
+     * v0.1.8 refreshes the liquid-glass material. The old values are stored explicitly, so
+     * changing the Kotlin defaults alone would leave updating users on the old look — this forces
+     * the new material on once (keyed on [Prefs.glassDefaultsRev]) and then never again, so later
+     * hand-tuned values are kept.
+     */
+    private fun migrateGlassDefaults(p: Prefs): Prefs =
+        if (p.glassDefaultsRev >= 1) p
+        else p.copy(
+            glassBlur = 0,
+            glassBarBlur = 0,
+            glassBarOpacity = 0,
+            glassOpacity = 50,
+            glassInnerOpacity = 40,
+            glassRefractionHeight = 20,
+            glassRefraction = 40,
+            glassChromaticAmount = 100,
+            glassDefaultsRev = 1,
+        )
+
     /* ─── Loading & persistence plumbing ─── */
 
     private suspend fun load() {
@@ -332,11 +352,19 @@ class LedgerViewModel(private val repo: Repository) : ViewModel() {
            an empty list back to the default, so the .first() calls below are safe. */
         val piggies = (d.piggies ?: d.piggy?.let { listOf(it) } ?: listOf(Piggy())).ifEmpty { listOf(Piggy()) }
 
+        /* Refresh the liquid-glass defaults for anyone updating from an older build (see
+           [migrateGlassDefaults]); the migrated values are persisted once. */
+        val loadedPrefs = d.prefs ?: Prefs()
+        val migratedPrefs = migrateGlassDefaults(loadedPrefs)
+        if (migratedPrefs != loadedPrefs) {
+            viewModelScope.launch { repo.savePrefs(migratedPrefs) }
+        }
+
         var s = LedgerState(
             ready = true,
             theme = d.theme ?: DEFAULT_THEME,
             savedTheme = d.savedTheme,
-            prefs = d.prefs ?: Prefs(),
+            prefs = migratedPrefs,
             settings = safeSettings,
             expenses = normalizedExpenses,
             categories = d.categories ?: defaultCategories(),

@@ -26,7 +26,7 @@ A private, local-first budgeting app that tracks your daily allowance and banks 
 - **Automations**: recurring spending / top-ups / balance rules with automatic backfill
 - **Piggy bank**: savings goal with deposits and a break option
 - 10 theme presets with full color customization, fonts, compact density, reorderable cards
-- **Liquid glass** UI (Android): shader-backed blur, refraction, vibrancy and chromatic aberration on the bottom navigation pill and optional frosted dashboard cards
+- **Liquid glass** UI (Android): [Haze 2](https://github.com/chrisbanes/haze)-backed blur, refraction, vibrancy and chromatic aberration on the four-tab bottom bar, its Log/Settings bubbles and the optional frosted dashboard cards
 - JSON backup & CSV export — the backup format is identical across web and Android, so you can move data freely between platforms
 
 ## Web app
@@ -89,7 +89,7 @@ cd android
 ./gradlew assembleDebug   # APK at app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Requires **JDK 17+**, Android SDK (API 35), and **Kotlin 2.3.0** (the project uses Compose's shader-backed liquid-glass library). The full refraction/blur/vibrancy effects need an emulator or device on **Android API 33+** (AGSL); on API 26–32 the glass degrades to a basic blur.
+Requires **JDK 17+**, Android SDK (API 37), **AGP 9.4.1**, **Kotlin 2.4.21** and **Jetpack Compose 2026.09**. The liquid glass and blur are provided by [Haze 2](https://github.com/chrisbanes/haze) (`haze` + `haze-blur` + `haze-glass`). The full refraction/glass optics need a device on **Android 13+ (API 33)**, and the masked edge blur needs **Android 12 (API 31)**; below that the glass degrades to a basic blur.
 
 ### Screenshots
 
